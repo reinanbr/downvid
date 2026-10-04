@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<paths>
+    <!-- Movies/DownVid on Android 7-9 (legacy save path) -->
+    <external-path name="movies" path="Movies/" />
+    <external-path name="music" path="Music/" />
+    <external-path name="pictures" path="Pictures/" />
+</paths>
