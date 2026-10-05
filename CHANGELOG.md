@@ -48,5 +48,5 @@ First public release.
   downloads list with empty states; selectable quality cards in the download
   sheet; grouped settings with an About section.
 
-[Unreleased]: https://github.com/OWNER/downvid/compare/v0.1.0...HEAD
-[0.1.0]: https://github.com/OWNER/downvid/releases/tag/v0.1.0
+[Unreleased]: https://github.com/reinanbr/downvid/compare/v0.1.0...HEAD
+[0.1.0]: https://github.com/reinanbr/downvid/releases/tag/v0.1.0
