@@ -216,7 +216,8 @@ class DownloadService : Service() {
     }
 
     private fun placeholderNotification() = NotificationCompat.Builder(this, CH_PROGRESS)
-        .setSmallIcon(android.R.drawable.stat_sys_download)
+        .setSmallIcon(R.drawable.ic_stat_downvid)
+        .setColor(0xFF7B5CFF.toInt())
         .setContentTitle("DownVid")
         .setContentText("Preparing downloads…")
         .setSilent(true)
@@ -233,7 +234,8 @@ class DownloadService : Service() {
             else -> progressText(s) to (percent <= 0.0)
         }
         val b = NotificationCompat.Builder(this, CH_PROGRESS)
-            .setSmallIcon(android.R.drawable.stat_sys_download)
+            .setSmallIcon(R.drawable.ic_stat_downvid)
+            .setColor(0xFF7B5CFF.toInt())
             .setContentTitle(title)
             .setContentText(text)
             .setSubText(if (percent > 0) "${percent.toInt()}%" else null)
@@ -250,7 +252,8 @@ class DownloadService : Service() {
     }
 
     private fun savingNotification(title: String) = NotificationCompat.Builder(this, CH_PROGRESS)
-        .setSmallIcon(android.R.drawable.stat_sys_download)
+        .setSmallIcon(R.drawable.ic_stat_downvid)
+        .setColor(0xFF7B5CFF.toInt())
         .setContentTitle(title)
         .setContentText("Saving to gallery…")
         .setProgress(100, 0, true)
@@ -260,7 +263,8 @@ class DownloadService : Service() {
 
     private fun resultNotification(title: String, headline: String, text: String, uri: Uri?, mime: String = "video/mp4") =
         NotificationCompat.Builder(this, CH_DONE)
-            .setSmallIcon(if (uri != null) android.R.drawable.stat_sys_download_done else android.R.drawable.stat_notify_error)
+            .setSmallIcon(if (uri != null) R.drawable.ic_stat_downvid else android.R.drawable.stat_notify_error)
+            .setColor(0xFF7B5CFF.toInt())
             .setContentTitle(headline)
             .setContentText(title)
             .setStyle(NotificationCompat.BigTextStyle().bigText("$title\n$text"))

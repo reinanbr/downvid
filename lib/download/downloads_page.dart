@@ -2,6 +2,8 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 
+import '../app_theme.dart';
+import '../brand.dart';
 import '../core/native/go_core.dart';
 import '../core/native/platform_bridge.dart';
 import 'link_renewer.dart';
@@ -92,7 +94,24 @@ class _DownloadsPageState extends State<DownloadsPage> {
           bottom: TabBar(
             tabs: [
               for (final c in tabs)
-                Tab(icon: Icon(c.icon), text: groups[c]!.isEmpty ? c.label : '${c.label} (${groups[c]!.length})'),
+                Tab(
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(c.icon, size: 20),
+                      const SizedBox(width: 6),
+                      Text(c.label),
+                      if (groups[c]!.isNotEmpty) ...[
+                        const SizedBox(width: 6),
+                        Badge(
+                          label: Text('${groups[c]!.length}'),
+                          backgroundColor: Theme.of(context).colorScheme.secondaryContainer,
+                          textColor: Theme.of(context).colorScheme.onSecondaryContainer,
+                        ),
+                      ],
+                    ],
+                  ),
+                ),
             ],
           ),
         ),
@@ -103,16 +122,18 @@ class _DownloadsPageState extends State<DownloadsPage> {
 
   Widget _list(List<Map<String, dynamic>> jobs, _Category c) {
     final active = jobs.where((j) => _active.contains(j['state'])).toList();
-    final saved = jobs.where((j) => j['state'] == 'saved').toList();
-    if (jobs.isEmpty) return Center(child: Text(c.empty));
+    final saved = jobs.where((j) => j['state'] == 'saved').toList()
+      ..sort((a, b) => (b['id'] as int).compareTo(a['id'] as int));
+    if (jobs.isEmpty) return EmptyState(icon: c.icon, title: c.empty, hint: c.hint);
     return ListView(
+      padding: const EdgeInsets.fromLTRB(16, 4, 16, 24),
       children: [
         if (active.isNotEmpty) ...[
-          const _Section('In progress'),
+          SectionTitle('In progress · ${active.length}', padding: const EdgeInsets.fromLTRB(4, 16, 4, 8)),
           for (final j in active) _JobTile(job: j, renewing: _renewing.contains(j['id']), page: this),
         ],
         if (saved.isNotEmpty) ...[
-          const _Section('Completed'),
+          SectionTitle('Completed · ${saved.length}', padding: const EdgeInsets.fromLTRB(4, 16, 4, 8)),
           for (final j in saved) _JobTile(job: j, renewing: false, page: this),
         ],
       ],
@@ -122,14 +143,25 @@ class _DownloadsPageState extends State<DownloadsPage> {
 
 /// Tabs of the downloads screen, by what the job produces.
 enum _Category {
-  video('Videos', Icons.movie_outlined, 'No videos downloaded yet.'),
-  music('Music', Icons.music_note_outlined, 'No music downloaded yet.'),
-  photo('Photos', Icons.image_outlined, 'No photos downloaded yet.');
+  video(
+    'Videos',
+    Icons.movie_rounded,
+    'No videos yet',
+    'Share a video link with DownVid or paste it on the home screen.',
+  ),
+  music(
+    'Music',
+    Icons.music_note_rounded,
+    'No music yet',
+    'Pick "Audio only" in the download sheet to save M4A or MP3.',
+  ),
+  photo('Photos', Icons.image_rounded, 'No photos yet', 'Instagram photos and carousels show up here.');
 
-  const _Category(this.label, this.icon, this.empty);
+  const _Category(this.label, this.icon, this.empty, this.hint);
   final String label;
   final IconData icon;
   final String empty;
+  final String hint;
 
   static _Category of(Map<String, dynamic> job) {
     final mime = (job['saved'] as Map?)?['mime'] as String? ?? '';
@@ -141,17 +173,6 @@ enum _Category {
       _ => video,
     };
   }
-}
-
-class _Section extends StatelessWidget {
-  const _Section(this.title);
-  final String title;
-
-  @override
-  Widget build(BuildContext context) => Padding(
-    padding: const EdgeInsets.fromLTRB(16, 16, 16, 4),
-    child: Text(title, style: Theme.of(context).textTheme.titleSmall),
-  );
 }
 
 class _JobTile extends StatelessWidget {
@@ -166,29 +187,60 @@ class _JobTile extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
     final percent = (job['percent'] as num?)?.toDouble() ?? 0;
-    final running = state == 'running';
-    return ListTile(
-      leading: _Thumb(url: job['thumbnail'] as String?, kind: job['kind'] as String?),
-      title: Text(job['title'] as String? ?? 'Download', maxLines: 2, overflow: TextOverflow.ellipsis),
-      subtitle: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          if (running || state == 'paused' || state == 'waiting')
-            Padding(
-              padding: const EdgeInsets.symmetric(vertical: 4),
-              child: LinearProgressIndicator(value: percent > 0 ? percent / 100 : null),
+    final showProgress = state == 'running' || state == 'paused' || state == 'waiting';
+    final statusColor = switch (state) {
+      'error' => scheme.error,
+      'expired' || 'waiting' => scheme.warning,
+      'paused' => scheme.onSurfaceVariant,
+      'saved' => scheme.onSurfaceVariant,
+      _ => scheme.primary,
+    };
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 10),
+      child: Card(
+        child: InkWell(
+          onTap: state == 'saved' ? _open : null,
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(12, 12, 4, 12),
+            child: Row(
+              children: [
+                _Thumb(url: job['thumbnail'] as String?, kind: job['kind'] as String?, done: state == 'saved'),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        job['title'] as String? ?? 'Download',
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        style: theme.textTheme.titleSmall,
+                      ),
+                      const SizedBox(height: 4),
+                      if (showProgress) ...[
+                        LinearProgressIndicator(
+                          value: percent > 0 ? percent / 100 : null,
+                          color: state == 'paused' ? scheme.outline : null,
+                        ),
+                        const SizedBox(height: 6),
+                      ],
+                      Text(
+                        _statusText(),
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        style: theme.textTheme.bodySmall?.copyWith(color: statusColor),
+                      ),
+                    ],
+                  ),
+                ),
+                _actions(context),
+              ],
             ),
-          Text(
-            _statusText(),
-            maxLines: 2,
-            overflow: TextOverflow.ellipsis,
-            style: state == 'error' ? theme.textTheme.bodySmall?.copyWith(color: theme.colorScheme.error) : null,
           ),
-        ],
+        ),
       ),
-      trailing: _actions(context),
-      onTap: state == 'saved' ? () => _open() : null,
     );
   }
 
@@ -246,8 +298,8 @@ class _JobTile extends StatelessWidget {
         return Row(
           mainAxisSize: MainAxisSize.min,
           children: [
-            IconButton(tooltip: 'Pause', icon: const Icon(Icons.pause), onPressed: () => go.pause(id)),
-            IconButton(tooltip: 'Cancel', icon: const Icon(Icons.close), onPressed: () => go.cancel(id)),
+            IconButton(tooltip: 'Pause', icon: const Icon(Icons.pause_rounded), onPressed: () => go.pause(id)),
+            IconButton(tooltip: 'Cancel', icon: const Icon(Icons.close_rounded), onPressed: () => go.cancel(id)),
           ],
         );
       case 'paused' || 'error':
@@ -256,7 +308,7 @@ class _JobTile extends StatelessWidget {
           children: [
             IconButton(
               tooltip: state == 'paused' ? 'Resume' : 'Retry',
-              icon: Icon(state == 'paused' ? Icons.play_arrow : Icons.refresh),
+              icon: Icon(state == 'paused' ? Icons.play_arrow_rounded : Icons.refresh_rounded),
               onPressed: () => go.resume(id),
             ),
             IconButton(tooltip: 'Remove', icon: const Icon(Icons.delete_outline), onPressed: () => go.remove(id)),
@@ -283,11 +335,24 @@ class _JobTile extends StatelessWidget {
             'forget' => go.remove(id),
             _ => page._delete(job),
           },
+          icon: const Icon(Icons.more_vert_rounded),
           itemBuilder: (_) => const [
-            PopupMenuItem(value: 'open', child: Text('Open')),
-            PopupMenuItem(value: 'share', child: Text('Share')),
-            PopupMenuItem(value: 'forget', child: Text('Remove from history')),
-            PopupMenuItem(value: 'delete', child: Text('Delete file')),
+            PopupMenuItem(
+              value: 'open',
+              child: ListTile(leading: Icon(Icons.play_arrow_rounded), title: Text('Open')),
+            ),
+            PopupMenuItem(
+              value: 'share',
+              child: ListTile(leading: Icon(Icons.share_rounded), title: Text('Share')),
+            ),
+            PopupMenuItem(
+              value: 'forget',
+              child: ListTile(leading: Icon(Icons.history_rounded), title: Text('Remove from history')),
+            ),
+            PopupMenuItem(
+              value: 'delete',
+              child: ListTile(leading: Icon(Icons.delete_outline_rounded), title: Text('Delete file')),
+            ),
           ],
         );
     }
@@ -308,29 +373,48 @@ class _JobTile extends StatelessWidget {
 }
 
 class _Thumb extends StatelessWidget {
-  const _Thumb({required this.url, required this.kind});
+  const _Thumb({required this.url, required this.kind, required this.done});
   final String? url;
   final String? kind;
+  final bool done;
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final icon = switch (kind) {
-      'audio' => Icons.music_note_outlined,
-      'image' => Icons.image_outlined,
-      _ => Icons.movie_outlined,
+      'audio' => Icons.music_note_rounded,
+      'image' => Icons.image_rounded,
+      _ => Icons.movie_rounded,
     };
     final placeholder = Container(
       color: theme.colorScheme.surfaceContainerHighest,
       child: Icon(icon, color: theme.colorScheme.outline),
     );
+    // Videos keep their 16:9 frame; music covers and photos are square.
+    final width = kind == 'audio' || kind == 'image' ? 56.0 : 88.0;
     return ClipRRect(
-      borderRadius: BorderRadius.circular(6),
-      child: SizedBox.square(
-        dimension: 52,
-        child: url == null
-            ? placeholder
-            : Image.network(url!, fit: BoxFit.cover, errorBuilder: (_, _, _) => placeholder),
+      borderRadius: BorderRadius.circular(12),
+      child: SizedBox(
+        width: width,
+        height: 56,
+        child: Stack(
+          fit: StackFit.expand,
+          children: [
+            url == null ? placeholder : Image.network(url!, fit: BoxFit.cover, errorBuilder: (_, _, _) => placeholder),
+            if (done && kind != 'image')
+              Center(
+                child: Container(
+                  padding: const EdgeInsets.all(4),
+                  decoration: const BoxDecoration(color: Colors.black45, shape: BoxShape.circle),
+                  child: Icon(
+                    kind == 'audio' ? Icons.music_note_rounded : Icons.play_arrow_rounded,
+                    size: 18,
+                    color: Colors.white,
+                  ),
+                ),
+              ),
+          ],
+        ),
       ),
     );
   }

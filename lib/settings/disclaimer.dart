@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../brand.dart';
 import '../core/settings.dart';
 
 const disclaimerText =
@@ -16,16 +17,17 @@ Future<void> showDisclaimer(BuildContext context, {bool force = false}) async {
     context: context,
     barrierDismissible: false,
     builder: (ctx) => AlertDialog(
-      icon: const Icon(Icons.info_outline),
+      icon: const Center(child: DownVidLogo(size: 56)),
       title: const Text('Before you start'),
       content: const Text(disclaimerText),
       actions: [
         FilledButton(
+          style: FilledButton.styleFrom(minimumSize: const Size.fromHeight(52)),
           onPressed: () {
             if (!s.disclaimerAccepted) s.set('disclaimerAccepted', true);
             Navigator.of(ctx).pop();
           },
-          child: const Text('Got it'),
+          child: const Text('I understand'),
         ),
       ],
     ),

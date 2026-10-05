@@ -1,4 +1,6 @@
-# DownVid
+<p align="center"><img src="assets/brand/logo.svg" width="112" alt="DownVid logo"></p>
+
+<h1 align="center">DownVid</h1>
 
 Open-source Android downloader for videos, music and photos from public links
 (YouTube, YouTube Music, Instagram, TikTok, X/Twitter, Facebook, SoundCloud,
@@ -377,6 +379,7 @@ android/app/src/main/
   kotlin/…                  ShareActivity, services, WebView helpers, MediaSaver
   assets/ytdlp_server.py    resident yt-dlp process
 scripts/build_go.sh         builds libdvcore.so for every ABI
+assets/brand/               logo (SVG master, 512 px PNG); Android icons are generated from it
 ```
 
 ## Debugging
@@ -414,3 +417,6 @@ DownVid is licensed under the **GNU General Public License v3.0** (see
 | [gomedia](https://github.com/yapingcat/gomedia) (vendored, patched) | MIT |
 | [golang.org/x/text](https://pkg.go.dev/golang.org/x/text) | BSD-3-Clause |
 | Flutter, `package:ffi`, `package:ffigen` | BSD-3-Clause |
+
+The DownVid logo (`assets/brand/`) is part of this project and covered by the
+same license.

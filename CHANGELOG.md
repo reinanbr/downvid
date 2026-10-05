@@ -41,6 +41,12 @@ First public release.
 - Settings: default video quality, default audio format, music links in
   "Audio only", simultaneous downloads, copied-link detection, yt-dlp update.
 - First-use notice about authorized use and copyright.
+- DownVid logo, adaptive launcher icon (with Android 13 themed icon),
+  branded notifications and launch screen.
+- Material 3 design with the brand's violet/pink palette, light and dark
+  themes: home screen with link field, recent downloads and tips; card-based
+  downloads list with empty states; selectable quality cards in the download
+  sheet; grouped settings with an About section.
 
 [Unreleased]: https://github.com/OWNER/downvid/compare/v0.1.0...HEAD
 [0.1.0]: https://github.com/OWNER/downvid/releases/tag/v0.1.0

@@ -36,7 +36,8 @@ class GoCore {
 
   // Each isolate needs its own handle; dlopen is refcounted, so this is cheap.
   static DvCoreBindings _open() {
-    if (!Platform.isAndroid) {
+    // Linux: desktop development and widget tests (go build -buildmode=c-shared).
+    if (!Platform.isAndroid && !Platform.isLinux) {
       throw UnsupportedError('libdvcore is only bundled for Android');
     }
     return DvCoreBindings(ffi.DynamicLibrary.open(_libName));

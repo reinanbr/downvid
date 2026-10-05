@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../app_theme.dart';
 import '../core/settings.dart';
 import '../core/url/link_parser.dart';
 import '../download/extract_controller.dart';
@@ -13,7 +14,7 @@ class ShareSheet extends StatefulWidget {
 
   final String? rawText;
 
-  /// Called by the "Fechar" button; defaults to popping the sheet.
+  /// Called by the "Close" button; defaults to popping the sheet.
   final VoidCallback? onClose;
 
   @override
@@ -97,17 +98,17 @@ class _GenericBody extends StatelessWidget {
           _MusicHeader(meta: meta)
         else
           _Header(link: link, title: ctl.title, thumbnail: ctl.thumbnail),
-        const SizedBox(height: 12),
+        const SizedBox(height: 16),
         if (ctl.hasAudio && ctl.hasVideo && showList) ...[
           SegmentedButton<MediaMode>(
             segments: const [
-              ButtonSegment(value: MediaMode.video, icon: Icon(Icons.movie_outlined), label: Text('Video')),
-              ButtonSegment(value: MediaMode.audio, icon: Icon(Icons.music_note_outlined), label: Text('Audio only')),
+              ButtonSegment(value: MediaMode.video, icon: Icon(Icons.movie_rounded), label: Text('Video')),
+              ButtonSegment(value: MediaMode.audio, icon: Icon(Icons.music_note_rounded), label: Text('Audio only')),
             ],
             selected: {ctl.mode},
             onSelectionChanged: (s) => ctl.setMode(s.first),
           ),
-          const SizedBox(height: 8),
+          const SizedBox(height: 12),
         ],
         _ScanStatus(ctl: ctl),
         if (showList && !audio && ctl.isCarousel) ...[
@@ -187,24 +188,26 @@ class _Header extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
     final placeholder = Container(
-      color: theme.colorScheme.surfaceContainerHighest,
-      child: Icon(Icons.movie_outlined, color: theme.colorScheme.outline),
+      color: scheme.surfaceContainerHighest,
+      child: Icon(Icons.movie_rounded, color: scheme.outline),
     );
+    final source = link.platform == SourcePlatform.generic ? link.uri.host : link.platform.label;
     return Row(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         ClipRRect(
-          borderRadius: BorderRadius.circular(8),
+          borderRadius: BorderRadius.circular(14),
           child: SizedBox(
-            width: 112,
-            height: 63,
+            width: 128,
+            height: 72,
             child: thumbnail == null
                 ? placeholder
                 : Image.network(thumbnail!, fit: BoxFit.cover, errorBuilder: (_, _, _) => placeholder),
           ),
         ),
-        const SizedBox(width: 12),
+        const SizedBox(width: 14),
         Expanded(
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
@@ -215,12 +218,16 @@ class _Header extends StatelessWidget {
                 overflow: TextOverflow.ellipsis,
                 style: theme.textTheme.titleSmall,
               ),
-              const SizedBox(height: 2),
-              Text(
-                link.uri.toString(),
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: theme.textTheme.bodySmall?.copyWith(color: theme.colorScheme.outline),
+              const SizedBox(height: 6),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                decoration: BoxDecoration(color: scheme.primaryContainer, borderRadius: BorderRadius.circular(8)),
+                child: Text(
+                  source,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: theme.textTheme.labelSmall?.copyWith(color: scheme.onPrimaryContainer),
+                ),
               ),
             ],
           ),
@@ -252,7 +259,7 @@ class _MusicHeader extends StatelessWidget {
     return Row(
       children: [
         ClipRRect(
-          borderRadius: BorderRadius.circular(8),
+          borderRadius: BorderRadius.circular(14),
           child: SizedBox.square(
             dimension: 72,
             child: cover == null
@@ -336,10 +343,12 @@ class _ScanStatus extends StatelessWidget {
           Icon(
             n > 0 ? Icons.check_circle_outline : Icons.info_outline,
             size: 18,
-            color: n > 0 ? Colors.green : theme.colorScheme.outline,
+            color: n > 0 ? theme.colorScheme.success : theme.colorScheme.outline,
           ),
         const SizedBox(width: 8),
-        Expanded(child: Text(text, style: theme.textTheme.bodyMedium)),
+        Expanded(
+          child: Text(text, style: theme.textTheme.bodyMedium?.copyWith(color: theme.colorScheme.onSurfaceVariant)),
+        ),
         if (!done && n > 0) Text('$n', style: theme.textTheme.labelLarge),
       ],
     );
@@ -355,33 +364,80 @@ class _OptionTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
     final o = option;
     final parts = <String>[
-      if (o.size > 0) '${o.sizeExact ? '' : '~'}${formatBytes(o.size)}',
       if (o.durationSec > 0) formatDuration(o.durationSec),
       // yt-dlp URLs point at CDN hosts (googlevideo...), meaningless here.
       if (o.source == 'instagram') o.sourceLabel,
       if (o.source != 'ytdlp' && o.source != 'instagram') ...[o.sourceLabel, Uri.tryParse(o.url)?.host ?? ''],
-    ];
-    return ListTile(
-      contentPadding: EdgeInsets.zero,
-      dense: true,
-      onTap: onTap,
-      leading: Icon(
-        selected ? Icons.radio_button_checked : Icons.radio_button_unchecked,
-        color: selected ? Theme.of(context).colorScheme.primary : null,
-      ),
-      title: Text(o.label, maxLines: 1, overflow: TextOverflow.ellipsis),
-      subtitle: Text(parts.where((p) => p.isNotEmpty).join(' · '), maxLines: 1, overflow: TextOverflow.ellipsis),
-      trailing: Icon(
-        o.isAudio
-            ? Icons.music_note_outlined
-            : o.isImage
-            ? Icons.image_outlined
-            : o.isHls
-            ? Icons.stream
-            : Icons.insert_drive_file_outlined,
-        size: 18,
+    ].where((p) => p.isNotEmpty).toList();
+    final icon = o.isAudio
+        ? Icons.music_note_rounded
+        : o.isImage
+        ? Icons.image_rounded
+        : o.isHls
+        ? Icons.stream_rounded
+        : Icons.movie_rounded;
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 8),
+      child: Material(
+        color: selected ? scheme.primaryContainer : scheme.surfaceContainerHigh,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(16),
+          side: BorderSide(color: selected ? scheme.primary : Colors.transparent, width: 1.5),
+        ),
+        clipBehavior: Clip.antiAlias,
+        child: InkWell(
+          onTap: onTap,
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+            child: Row(
+              children: [
+                Icon(icon, size: 22, color: selected ? scheme.primary : scheme.onSurfaceVariant),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        o.label,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: theme.textTheme.titleSmall?.copyWith(
+                          color: selected ? scheme.onPrimaryContainer : scheme.onSurface,
+                        ),
+                      ),
+                      if (parts.isNotEmpty)
+                        Text(
+                          parts.join(' · '),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: theme.textTheme.bodySmall?.copyWith(color: scheme.onSurfaceVariant),
+                        ),
+                    ],
+                  ),
+                ),
+                if (o.size > 0) ...[
+                  const SizedBox(width: 8),
+                  Text(
+                    '${o.sizeExact ? '' : '~'}${formatBytes(o.size)}',
+                    style: theme.textTheme.labelLarge?.copyWith(
+                      color: selected ? scheme.onPrimaryContainer : scheme.onSurfaceVariant,
+                    ),
+                  ),
+                ],
+                const SizedBox(width: 8),
+                Icon(
+                  selected ? Icons.check_circle_rounded : Icons.radio_button_unchecked_rounded,
+                  size: 22,
+                  color: selected ? scheme.primary : scheme.outlineVariant,
+                ),
+              ],
+            ),
+          ),
+        ),
       ),
     );
   }
@@ -552,15 +608,15 @@ class _DownloadArea extends StatelessWidget {
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
             _Banner(
-              icon: Icons.check_circle,
-              color: Colors.green,
+              icon: Icons.check_circle_rounded,
+              color: theme.colorScheme.success,
               text: many
                   ? '${ctl.itemsSaved} of ${ctl.itemsTotal} items saved to the gallery (photos in Pictures/DownVid, videos in Movies/DownVid)'
                   : 'Saved to ${s.location}/${s.displayName} (${formatBytes(ctl.bytes)})',
             ),
             if (ctl.warning != null) ...[
               const SizedBox(height: 6),
-              _Banner(icon: Icons.warning_amber, color: Colors.orange, text: ctl.warning!),
+              _Banner(icon: Icons.warning_amber_rounded, color: theme.colorScheme.warning, text: ctl.warning!),
             ],
             const SizedBox(height: 8),
             Row(
@@ -590,14 +646,18 @@ class _DownloadArea extends StatelessWidget {
                 child: _Banner(icon: Icons.error_outline, color: theme.colorScheme.error, text: ctl.error ?? 'Failed'),
               ),
             if (ctl.phase == DownloadPhase.canceled)
-              const Padding(
-                padding: EdgeInsets.only(bottom: 8),
-                child: _Banner(icon: Icons.cancel_outlined, color: Colors.grey, text: 'Download canceled'),
+              Padding(
+                padding: const EdgeInsets.only(bottom: 8),
+                child: _Banner(
+                  icon: Icons.cancel_outlined,
+                  color: theme.colorScheme.outline,
+                  text: 'Download canceled',
+                ),
               ),
             if (ctl.isCarousel && ctl.mode == MediaMode.video)
               FilledButton.icon(
                 onPressed: ctl.checkedItems.isEmpty ? null : ctl.downloadItems,
-                icon: const Icon(Icons.download),
+                icon: const Icon(Icons.download_rounded),
                 label: Text(switch (ctl.checkedItems.length) {
                   0 => 'Select items',
                   1 => 'Download 1 item',
@@ -607,7 +667,7 @@ class _DownloadArea extends StatelessWidget {
             else
               FilledButton.icon(
                 onPressed: ctl.selected == null ? null : ctl.download,
-                icon: const Icon(Icons.download),
+                icon: const Icon(Icons.download_rounded),
                 label: Text(
                   ctl.phase != DownloadPhase.idle
                       ? 'Try again'
@@ -647,13 +707,17 @@ class _Banner extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Row(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Icon(icon, color: color, size: 18),
-        const SizedBox(width: 8),
-        Expanded(child: Text(text, style: Theme.of(context).textTheme.bodySmall)),
-      ],
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(color: color.withValues(alpha: 0.12), borderRadius: BorderRadius.circular(14)),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(icon, color: color, size: 20),
+          const SizedBox(width: 10),
+          Expanded(child: Text(text, style: Theme.of(context).textTheme.bodyMedium)),
+        ],
+      ),
     );
   }
 }
