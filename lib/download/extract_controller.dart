@@ -416,15 +416,17 @@ class ExtractController extends ChangeNotifier {
     matchStatus = 'Querying Instagram…';
     _notify();
     final sw = Stopwatch()..start();
+    var loggedIn = false;
     try {
-      final loggedIn = await InstagramChannel.isLoggedIn();
+      loggedIn = await InstagramChannel.isLoggedIn();
       Map<String, dynamic>? data;
       if (!story) {
         try {
           data = await _instaQuery(q, 'public');
         } on GoCoreException catch (e) {
-          if (e.code != 'unavailable' || !loggedIn) rethrow;
-          dvLog('extract: instagram: not public, retrying with the session');
+          // Not public, or blocked (HTML instead of JSON): the session may still work.
+          if (!loggedIn || e.code == 'notfound') rethrow;
+          dvLog('extract: instagram: public query failed (${e.code}), retrying with the session');
         }
       } else if (!loggedIn) {
         throw GoCoreException('Stories are only visible when signed in to Instagram.', code: 'unavailable');
@@ -448,7 +450,7 @@ class ExtractController extends ChangeNotifier {
       dvLog('extract: instagram failed in ${sw.elapsedMilliseconds}ms: ${e.message} (${e.code})');
       ytdlpError = e.message;
       // Not public / expired session: signing in (again) can solve it.
-      needsInstagramLogin = e.code == 'unavailable' || e.code == 'login';
+      needsInstagramLogin = e.code == 'unavailable' || e.code == 'login' || (!loggedIn && e.code != 'notfound');
       return true;
     } catch (e) {
       dvLog('extract: instagram query error: $e');

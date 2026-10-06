@@ -11,6 +11,7 @@ import android.view.ViewGroup
 import android.webkit.CookieManager
 import android.webkit.WebView
 import android.webkit.WebViewClient
+import android.webkit.RenderProcessGoneDetail
 import android.widget.LinearLayout
 import android.widget.ProgressBar
 import android.widget.TextView
@@ -41,6 +42,12 @@ class InstagramLoginActivity : Activity() {
             settings.javaScriptEnabled = true
             settings.domStorageEnabled = true
             webViewClient = object : WebViewClient() {
+                override fun onRenderProcessGone(view: WebView, detail: RenderProcessGoneDetail): Boolean {
+                    Log.w(TAG, "login: WebView renderer gone (crashed=${detail.didCrash()})")
+                    finishWith(isLoggedIn())
+                    return true
+                }
+
                 override fun onPageStarted(view: WebView, url: String, favicon: Bitmap?) {
                     progress.visibility = android.view.View.VISIBLE
                 }

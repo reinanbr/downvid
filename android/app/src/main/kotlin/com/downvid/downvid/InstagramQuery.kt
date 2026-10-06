@@ -10,6 +10,7 @@ import android.webkit.JavascriptInterface
 import android.webkit.WebSettings
 import android.webkit.WebView
 import android.webkit.WebViewClient
+import android.webkit.RenderProcessGoneDetail
 import org.json.JSONObject
 
 /**
@@ -42,6 +43,13 @@ class InstagramQuery(private val activity: Activity) {
         wv.addJavascriptInterface(Bridge(t0), "DVBridge")
         var started = false
         wv.webViewClient = object : WebViewClient() {
+            // Without this the system kills the whole app when the renderer dies.
+            override fun onRenderProcessGone(view: WebView, detail: RenderProcessGoneDetail): Boolean {
+                Log.w(TAG, "instagram: WebView renderer gone (crashed=${detail.didCrash()})")
+                main.post { finish(Result.failure(IllegalStateException("Instagram WebView crashed"))) }
+                return true
+            }
+
             override fun onPageFinished(view: WebView, url: String) {
                 if (started || done) return
                 started = true

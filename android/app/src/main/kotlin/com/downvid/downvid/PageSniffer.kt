@@ -14,6 +14,7 @@ import android.webkit.WebResourceResponse
 import android.webkit.WebSettings
 import android.webkit.WebView
 import android.webkit.WebViewClient
+import android.webkit.RenderProcessGoneDetail
 import org.json.JSONArray
 
 /**
@@ -160,6 +161,13 @@ class PageSniffer(
     }
 
     private inner class Client : WebViewClient() {
+        // Without this the system kills the whole app when the renderer dies.
+        override fun onRenderProcessGone(view: WebView, detail: RenderProcessGoneDetail): Boolean {
+            Log.w(TAG, "sniff: WebView renderer gone (crashed=${detail.didCrash()})")
+            main.post { finish("renderer gone") }
+            return true
+        }
+
         override fun shouldInterceptRequest(view: WebView, request: WebResourceRequest): WebResourceResponse? {
             val url = request.url.toString()
             if (looksLikeMedia(url)) {
