@@ -13,7 +13,7 @@ class GoCoreException implements Exception {
   GoCoreException(this.message, {this.unsupported = false, this.code = ''});
   final String message;
 
-  /// Machine-readable reason (Instagram: unavailable | login | notfound).
+  /// Machine-readable reason (Instagram/Threads: unavailable | login | notfound | nomedia).
   final String code;
 
   /// The extractor does not handle this link (try the generic page scan).
@@ -155,6 +155,13 @@ class GoCore {
   Future<Map<String, dynamic>> instaParse(String body, {String? storyPk}) =>
       _isolateCall('instaParse', {'body': body, 'storyPk': ?storyPk});
 
+  /// Threads post URL -> {shortcode, referer} (error for other links).
+  Future<Map<String, dynamic>> threadsQuery(String url) => _isolateCall('threadsQuery', {'url': url});
+
+  /// Threads page data from the WebView -> same shape as [instaParse].
+  Future<Map<String, dynamic>> threadsParse(String body, String shortcode) =>
+      _isolateCall('threadsParse', {'body': body, 'shortcode': shortcode});
+
   static Future<Map<String, dynamic>> _isolateCall(String fn, Map<String, dynamic> request) {
     final reqJson = jsonEncode(request);
     return Isolate.run(() {
@@ -166,6 +173,8 @@ class GoCore {
           'link' => b.DV_MusicLink(arg),
           'instaQuery' => b.DV_InstaQuery(arg),
           'instaParse' => b.DV_InstaParse(arg),
+          'threadsQuery' => b.DV_ThreadsQuery(arg),
+          'threadsParse' => b.DV_ThreadsParse(arg),
           _ => b.DV_MusicPick(arg),
         });
         return Map<String, dynamic>.from(_unwrap(raw) as Map);

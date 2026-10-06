@@ -58,6 +58,8 @@ func Code(err error) string {
 		return "login"
 	case errors.Is(err, ErrNotFound):
 		return "notfound"
+	case errors.Is(err, ErrNoMedia):
+		return "nomedia"
 	}
 	return ""
 }
@@ -147,6 +149,14 @@ type item struct {
 	Caption *struct {
 		Text string `json:"text"`
 	} `json:"caption"`
+	// Threads: reposts and quotes carry the media in the shared post.
+	TextPostAppInfo *struct {
+		ShareInfo struct {
+			RepostedPost *item `json:"reposted_post"`
+			QuotedPost   *item `json:"quoted_post"`
+			Attachment   *item `json:"quoted_attachment_post"`
+		} `json:"share_info"`
+	} `json:"text_post_app_info"`
 }
 
 // Result mirrors scan.Result plus Instagram-specific bits; AudioOptions and
@@ -217,12 +227,19 @@ func Parse(body []byte, storyPK string) (*Result, error) {
 	default:
 		p = resp.Data.Media.Product
 	}
-	res := &Result{Uploader: p.User.Username}
-	res.PageURL = "https://www.instagram.com/p/" + p.Code + "/"
+	pageURL := "https://www.instagram.com/p/" + p.Code + "/"
 	if storyPK != "" {
-		res.PageURL = "https://www.instagram.com/stories/" + p.User.Username + "/" + storyPK + "/"
+		pageURL = "https://www.instagram.com/stories/" + p.User.Username + "/" + storyPK + "/"
 	}
-	res.Title = title(p)
+	return build(p, pageURL, "instagram")
+}
+
+// build turns a media item (Instagram or Threads, same schema) into options
+// tagged with source.
+func build(p *item, pageURL, source string) (*Result, error) {
+	res := &Result{Uploader: p.User.Username}
+	res.PageURL = pageURL
+	res.Title = title(p, source)
 	res.Thumbnail = bestImage(p.Images.Candidates)
 
 	switch {
@@ -242,7 +259,7 @@ func Parse(body []byte, storyPK string) (*Result, error) {
 	default:
 		res.Options = itemOptions(*p, "", true)
 		if d := parseDash(p.DashManifest); d.audio != "" {
-			res.AudioOptions = audioOptions(d)
+			res.AudioOptions = audioOptions(d, source)
 			res.Music = music.Basic{
 				Title: res.Title, Uploader: p.User.Username, Duration: d.duration, Thumbnail: res.Thumbnail,
 			}
@@ -253,7 +270,7 @@ func Parse(body []byte, storyPK string) (*Result, error) {
 	}
 	for i := range res.Options {
 		res.Options[i].ID = fmt.Sprintf("i%d", i)
-		res.Options[i].Source = "instagram"
+		res.Options[i].Source = source
 		res.Options[i].Group = res.PageURL
 	}
 	return res, nil
@@ -303,12 +320,12 @@ func itemOptions(it item, prefix string, all bool) []scan.Option {
 }
 
 // audioOptions: the DASH audio track copied as M4A, or encoded to MP3.
-func audioOptions(d dashInfo) []scan.Option {
+func audioOptions(d dashInfo, source string) []scan.Option {
 	kbps := float64(d.audioBandwidth) / 1000
 	mk := func(format, quality, label string, k float64) scan.Option {
 		return scan.Option{
 			Kind: "audio", AudioFormat: format, AudioQuality: quality, Label: label, URL: d.audio,
-			Size: sizeOf(int64(k*1000), d.duration), DurationSec: d.duration, Source: "instagram",
+			Size: sizeOf(int64(k*1000), d.duration), DurationSec: d.duration, Source: source,
 		}
 	}
 	return []scan.Option{
@@ -333,7 +350,9 @@ func bestImage(cs []candidate) string {
 	return best
 }
 
-func title(p *item) string {
+// title: "@user - first caption line"; source names the site when both are
+// missing.
+func title(p *item, source string) string {
 	t := ""
 	if p.Caption != nil {
 		t = strings.TrimSpace(strings.SplitN(p.Caption.Text, "\n", 2)[0])
@@ -344,6 +363,9 @@ func title(p *item) string {
 	user := "@" + p.User.Username
 	switch {
 	case t == "" && p.User.Username == "":
+		if source == "threads" {
+			return "Threads"
+		}
 		return "Instagram"
 	case t == "":
 		return user

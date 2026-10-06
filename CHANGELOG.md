@@ -6,6 +6,14 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- Threads posts (threads.com / threads.net): videos in the best quality,
+  photos, carousels, and the media of quoted/reposted posts, without login;
+  share links (threads.com/share/...) included. Optional login (Threads'
+  official page, session kept on the device) for posts Threads only shows to
+  signed-in users.
+
 ## [0.1.0] - 2026-10-04
 
 First public release.

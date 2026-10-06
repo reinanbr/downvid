@@ -18,6 +18,7 @@ class _SettingsPageState extends State<SettingsPage> {
   String? _ytdlpVersion;
   bool _updating = false;
   bool _igLoggedIn = false;
+  bool _threadsLoggedIn = false;
   String? _coreVersion;
 
   @override
@@ -31,6 +32,7 @@ class _SettingsPageState extends State<SettingsPage> {
           onError: (_) {},
         );
     InstagramChannel.isLoggedIn().then((v) => mounted ? setState(() => _igLoggedIn = v) : null);
+    InstagramChannel.isLoggedIn(site: 'threads').then((v) => mounted ? setState(() => _threadsLoggedIn = v) : null);
   }
 
   Future<void> _set(String key, Object value) async {
@@ -178,6 +180,21 @@ class _SettingsPageState extends State<SettingsPage> {
                   onPressed: () async {
                     await InstagramChannel.logout();
                     setState(() => _igLoggedIn = false);
+                  },
+                  child: const Text('Sign out'),
+                ),
+              ),
+            ]),
+          if (_threadsLoggedIn)
+            group('Threads', [
+              ListTile(
+                leading: leading(Icons.lock_open_rounded),
+                title: const Text('Signed in'),
+                subtitle: const Text('Session stored on this device only. No password is kept.'),
+                trailing: TextButton(
+                  onPressed: () async {
+                    await InstagramChannel.logout(site: 'threads');
+                    setState(() => _threadsLoggedIn = false);
                   },
                   child: const Text('Sign out'),
                 ),

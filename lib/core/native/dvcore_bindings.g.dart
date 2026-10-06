@@ -164,6 +164,24 @@ class DvCoreBindings {
   late final _DV_StatusPtr = _lookup<ffi.NativeFunction<ffi.Pointer<ffi.Char> Function()>>('DV_Status');
   late final _DV_Status = _DV_StatusPtr.asFunction<ffi.Pointer<ffi.Char> Function()>();
 
+  ffi.Pointer<ffi.Char> DV_ThreadsParse(ffi.Pointer<ffi.Char> request_json) {
+    return _DV_ThreadsParse(request_json);
+  }
+
+  late final _DV_ThreadsParsePtr = _lookup<ffi.NativeFunction<ffi.Pointer<ffi.Char> Function(ffi.Pointer<ffi.Char>)>>(
+    'DV_ThreadsParse',
+  );
+  late final _DV_ThreadsParse = _DV_ThreadsParsePtr.asFunction<ffi.Pointer<ffi.Char> Function(ffi.Pointer<ffi.Char>)>();
+
+  ffi.Pointer<ffi.Char> DV_ThreadsQuery(ffi.Pointer<ffi.Char> request_json) {
+    return _DV_ThreadsQuery(request_json);
+  }
+
+  late final _DV_ThreadsQueryPtr = _lookup<ffi.NativeFunction<ffi.Pointer<ffi.Char> Function(ffi.Pointer<ffi.Char>)>>(
+    'DV_ThreadsQuery',
+  );
+  late final _DV_ThreadsQuery = _DV_ThreadsQueryPtr.asFunction<ffi.Pointer<ffi.Char> Function(ffi.Pointer<ffi.Char>)>();
+
   ffi.Pointer<ffi.Char> DV_Version() {
     return _DV_Version();
   }

@@ -60,7 +60,7 @@
         <activity
             android:name=".InstagramLoginActivity"
             android:exported="false"
-            android:label="Sign in to Instagram"
+            android:label="Sign in"
             android:theme="@android:style/Theme.Material.Light.DarkActionBar"
             android:configChanges="orientation|screenSize|keyboardHidden" />
         <!-- Quick Settings tile "Paste & download". -->

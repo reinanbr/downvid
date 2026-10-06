@@ -155,7 +155,7 @@ enum _Category {
     'No music yet',
     'Pick "Audio only" in the download sheet to save M4A or MP3.',
   ),
-  photo('Photos', Icons.image_rounded, 'No photos yet', 'Instagram photos and carousels show up here.');
+  photo('Photos', Icons.image_rounded, 'No photos yet', 'Instagram and Threads photos and carousels show up here.');
 
   const _Category(this.label, this.icon, this.empty, this.hint);
   final String label;

@@ -78,6 +78,7 @@ class MediaOption {
     'direct' => 'direct link',
     'ytdlp' => 'yt-dlp',
     'instagram' => 'Instagram',
+    'threads' => 'Threads',
     _ => 'page',
   };
 }

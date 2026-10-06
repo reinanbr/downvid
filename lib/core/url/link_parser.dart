@@ -2,6 +2,7 @@
 enum SourcePlatform {
   youtube('YouTube'),
   instagram('Instagram'),
+  threads('Threads'),
   tiktok('TikTok'),
   kwai('Kwai'),
   x('X / Twitter'),
@@ -61,6 +62,7 @@ SourcePlatform detectPlatform(Uri uri) {
   if (isHost('instagram.com') || isHost('instagr.am')) {
     return SourcePlatform.instagram;
   }
+  if (isHost('threads.net') || isHost('threads.com')) return SourcePlatform.threads;
   if (isHost('tiktok.com')) return SourcePlatform.tiktok;
   if (isHost('kwai.com') || isHost('kw.ai') || isHost('kwai.net')) {
     return SourcePlatform.kwai;

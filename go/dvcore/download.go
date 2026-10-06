@@ -256,6 +256,45 @@ func DV_InstaParse(reqJSON *C.char) *C.char {
 	return ok(r)
 }
 
+// DV_ThreadsQuery returns what the WebView needs for a Threads post URL:
+// {"kind":"threads","shortcode","referer"}.
+//
+//export DV_ThreadsQuery
+func DV_ThreadsQuery(reqJSON *C.char) *C.char {
+	var req struct {
+		URL string `json:"url"`
+	}
+	if err := json.Unmarshal([]byte(goString(reqJSON)), &req); err != nil {
+		return fail(fmt.Errorf("invalid request: %w", err))
+	}
+	q, err := instagram.NewThreadsQuery(req.URL)
+	if err != nil {
+		return fail(err)
+	}
+	return ok(q)
+}
+
+// DV_ThreadsParse finds the post in the page data sent by the WebView
+// ({"body","shortcode"}) and returns its options, like DV_InstaParse.
+//
+//export DV_ThreadsParse
+func DV_ThreadsParse(reqJSON *C.char) *C.char {
+	var req struct {
+		Body      string `json:"body"`
+		Shortcode string `json:"shortcode"`
+	}
+	if err := json.Unmarshal([]byte(goString(reqJSON)), &req); err != nil {
+		return fail(fmt.Errorf("invalid request: %w", err))
+	}
+	r, err := instagram.ParseThreads([]byte(req.Body), req.Shortcode)
+	if err != nil {
+		logx.Warnf("DV_ThreadsParse: %v (%d bytes)", err, len(req.Body))
+		return cJSON(map[string]any{"ok": false, "error": err.Error(), "code": instagram.Code(err)})
+	}
+	logx.Infof("DV_ThreadsParse: %q by @%s: %d options", r.Title, r.Uploader, len(r.Options))
+	return ok(r)
+}
+
 // DV_Pause / DV_Resume / DV_Remove act on a job; return 1 on success.
 //
 //export DV_Pause

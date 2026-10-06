@@ -220,6 +220,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                   'YouTube',
                   'YouTube Music',
                   'Instagram',
+                  'Threads',
                   'TikTok',
                   'X',
                   'Facebook',

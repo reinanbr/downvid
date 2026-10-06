@@ -3,7 +3,7 @@
 <h1 align="center">DownVid</h1>
 
 Open-source Android downloader for videos, music and photos from public links
-(YouTube, YouTube Music, Instagram, TikTok, X/Twitter, Facebook, SoundCloud,
+(YouTube, YouTube Music, Instagram, Threads, TikTok, X/Twitter, Facebook, SoundCloud,
 plain web pages with MP4/HLS players) — and music links from Spotify, Deezer
 and Apple Music, matched to the same recording on YouTube Music.
 
@@ -78,7 +78,7 @@ queue, metadata) and a thin Kotlin layer for Android-only APIs.
 │ Go core  libdvcore.so     │  │ Kotlin                                  │
 │ scan     page analysis    │  │ ShareActivity / PasteTileService        │
 │ ytdlp    yt-dlp → options │  │ YtDlp + YtDlpServer (resident yt-dlp)   │
-│ instagram post parser     │  │ PageSniffer (hidden WebView)            │
+│ instagram posts + Threads │  │ PageSniffer (hidden WebView)            │
 │ music    tags, matching   │  │ InstagramQuery / InstagramLogin         │
 │ hls      m3u8, AES-128    │  │ DownloadService (foreground service)    │
 │ netx     ranged download  │◄─┤ MediaSaver (MediaStore)                 │
@@ -110,6 +110,7 @@ entry point in a transparent window, and starts yt-dlp extraction right away
 |---|---|
 | Spotify / Deezer / Apple Music | Read track metadata from the service → search YouTube Music → accept the first result with the same duration (±5 s) |
 | Instagram post/reel/story | Instagram's own post query in a WebView (see [Instagram](#instagram)); yt-dlp as fallback |
+| Threads post | The post page opened in a WebView; Go reads the post from the data the page embeds (Instagram's media schema, quotes/reposts included), or from the post data the page fetches; optional login (Threads' official page) for posts hidden from visitors |
 | YouTube, TikTok, X, Facebook, SoundCloud… | yt-dlp; if it does not support the link, falls back to the generic scan |
 | Any other page | Generic scan **and** yt-dlp in parallel (yt-dlp has extractors for thousands of sites and embedded players) |
 
@@ -214,6 +215,23 @@ they cannot be saved as MP4 without re-encoding, and files under 1 MB
   lives in the app's private WebView cookie store, never leaves the device,
   and is used only when the public query is refused (`/api/v1/media/{id}/info/`
   for posts, `/api/v1/feed/reels_media/` for stories). Sign out in Settings.
+
+### Threads
+
+- **Public posts, no login**: Threads posts use Instagram's media schema.
+  `InstagramQuery` (mode `threads`) opens the post page in the hidden WebView;
+  share links (`threads.com/share/...`) redirect to the post and the code is
+  read from the final URL. The post comes from the data the page embeds
+  (`<script type="application/json">`) or, when the page loads it later, from
+  the page's own GraphQL responses (kept by a document-start script,
+  `androidx.webkit`). `go/internal/instagram/threads.go` finds the post by
+  code and reuses the Instagram parser: DASH renditions, the H.264 MP4,
+  photos, carousels and audio; quotes/reposts offer the shared post's media.
+- **Optional login**: some posts are hidden from visitors (restricted
+  profiles, sensitive content). The sheet then offers "Sign in to Threads
+  (optional)": the same login activity shows Threads' official login page,
+  and the query WebView uses the session from the app's cookie store. Sign
+  out in Settings.
 
 ### Queue, resume and background downloads
 
@@ -361,7 +379,7 @@ go/                         Go core (module github.com/downvid/core)
   include/dvcore.h          C API (input for ffigen)
   internal/scan             generic page scan and candidate resolution
   internal/ytdlp            yt-dlp JSON → options, error messages, audio options
-  internal/instagram        Instagram query parameters and response parser
+  internal/instagram        Instagram query parameters and response parser; Threads post parser
   internal/music            metadata (iTunes/Deezer), music-service links
   internal/hls              m3u8 parser, segment downloader, AES-128
   internal/netx             HTTP client, parallel/resumable Range downloads
@@ -398,7 +416,8 @@ adb logcat -s flutter DownVid DownVid-Go
   pages are not supported; WebM/OGG files from generic pages are skipped
   (they cannot be saved as MP4 without re-encoding).
 - Instagram content that Instagram only shows to signed-in users needs the
-  optional login; stories always do.
+  optional login; stories always do. The same goes for Threads posts hidden
+  from visitors. Text-only Threads posts have nothing to download.
 - Android 15 limits `dataSync` foreground services to 6 hours a day; when the
   limit is reached, downloads are paused and can be resumed later.
 - Kwai has no dedicated yt-dlp extractor and goes through the generic scan.

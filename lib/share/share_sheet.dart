@@ -139,16 +139,17 @@ class _GenericBody extends StatelessWidget {
           ),
         ] else if (showList && ctl.skipped.isNotEmpty && !ctl.scanning)
           _SkippedTile(skipped: ctl.skipped),
-        if (ctl.needsInstagramLogin && ctl.visibleOptions.isEmpty) ...[
+        if ((ctl.needsInstagramLogin || ctl.needsThreadsLogin) && ctl.visibleOptions.isEmpty) ...[
           const SizedBox(height: 8),
           FilledButton.icon(
-            onPressed: ctl.loginToInstagram,
+            onPressed: ctl.needsThreadsLogin ? ctl.loginToThreads : ctl.loginToInstagram,
             icon: const Icon(Icons.login),
-            label: const Text('Sign in to Instagram (optional)'),
+            label: Text('Sign in to ${ctl.needsThreadsLogin ? 'Threads' : 'Instagram'} (optional)'),
           ),
           const SizedBox(height: 4),
           Text(
-            'Optional, only for private content. You sign in on Instagram\'s official page, '
+            'Optional, only for private content. You sign in on '
+            '${ctl.needsThreadsLogin ? 'Threads' : 'Instagram'}\'s official page, '
             'in this phone\'s own browser engine. Your password is not stored and nothing is sent to any server '
             'or cloud: the session stays on this device and can be removed with "Sign out".',
             textAlign: TextAlign.center,
@@ -370,8 +371,11 @@ class _OptionTile extends StatelessWidget {
     final parts = <String>[
       if (o.durationSec > 0) formatDuration(o.durationSec),
       // yt-dlp URLs point at CDN hosts (googlevideo...), meaningless here.
-      if (o.source == 'instagram') o.sourceLabel,
-      if (o.source != 'ytdlp' && o.source != 'instagram') ...[o.sourceLabel, Uri.tryParse(o.url)?.host ?? ''],
+      if (o.source == 'instagram' || o.source == 'threads') o.sourceLabel,
+      if (!const {'ytdlp', 'instagram', 'threads'}.contains(o.source)) ...[
+        o.sourceLabel,
+        Uri.tryParse(o.url)?.host ?? '',
+      ],
     ].where((p) => p.isNotEmpty).toList();
     final icon = o.isAudio
         ? Icons.music_note_rounded

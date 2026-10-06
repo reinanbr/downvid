@@ -65,6 +65,12 @@ char* DV_MusicPick(char* request_json);
 char* DV_InstaQuery(char* request_json);
 char* DV_InstaParse(char* request_json);
 
+// Threads (public posts, page data read by the app's WebView):
+// DV_ThreadsQuery {"url"} -> {"shortcode","referer"};
+// DV_ThreadsParse {"body","shortcode"} -> options.
+char* DV_ThreadsQuery(char* request_json);
+char* DV_ThreadsParse(char* request_json);
+
 // Persistent queue: pause (keeps partial data), resume (continues it),
 // remove (deletes the record and partial data). Return 1 on success.
 int32_t DV_Pause(int64_t id);

@@ -140,6 +140,9 @@ class ExtractController extends ChangeNotifier {
       // Public posts via Instagram's own logged-out query; yt-dlp as fallback
       // (stories, profiles) — it needs login for most of them.
       if (!await _runInstagram()) await _runYtdlp();
+    } else if (platform == 'Threads' && await _runThreads()) {
+      // Post read from the Threads page. Otherwise (login wall, profile
+      // links): yt-dlp, then the page scan, as for other platforms.
     } else if (isPlatform) {
       final ok = await _runYtdlp();
       // Link not handled by yt-dlp (e.g. Kwai): look for videos in the page.
@@ -465,6 +468,76 @@ class ExtractController extends ChangeNotifier {
   Future<Map<String, dynamic>> _instaQuery(Map<String, dynamic> q, String mode) async {
     final body = await InstagramChannel.query({...q, 'mode': mode});
     return GoCore.instance.instaParse(body, storyPk: q['storyPk'] as String?);
+  }
+
+  /// Post Threads only shows to signed-in users: the sheet offers "Sign in
+  /// to Threads" and retries after login.
+  bool needsThreadsLogin = false;
+
+  /// Threads post: the WebView opens the post page and Go reads the post from
+  /// its embedded data (Instagram's media schema). Returns whether Threads
+  /// gave a definitive answer (else: yt-dlp and the generic scan).
+  Future<bool> _runThreads() async {
+    final Map<String, dynamic> q;
+    try {
+      q = await GoCore.instance.threadsQuery(pageUrl);
+    } on GoCoreException catch (e) {
+      dvLog('extract: threads: ${e.message}');
+      return false;
+    }
+    ytdlpRunning = true;
+    ytdlpError = null;
+    needsThreadsLogin = false;
+    matchStatus = 'Querying Threads…';
+    _notify();
+    final sw = Stopwatch()..start();
+    var loggedIn = false;
+    try {
+      // The query's WebView shares the app's cookies: with a session, the
+      // page shows what the user's account can see.
+      loggedIn = await InstagramChannel.isLoggedIn(site: 'threads');
+      final body = await InstagramChannel.query({...q, 'mode': 'threads'});
+      final data = await GoCore.instance.threadsParse(body, q['shortcode'] as String? ?? '');
+      dvLog('extract: threads ${sw.elapsedMilliseconds}ms options=${(data['options'] as List?)?.length ?? 0}');
+      title = _nonEmpty(data['title'] as String?) ?? title;
+      thumbnail = _nonEmpty(data['thumbnail'] as String?) ?? thumbnail;
+      final basic = data['music'] as Map?;
+      if (basic != null && (basic['duration'] as num? ?? 0) > 0) _musicBasic = Map<String, dynamic>.from(basic);
+      _merge(data);
+      for (final j in (data['audioOptions'] as List? ?? const [])) {
+        audioOptions.add(MediaOption.fromJson(Map<String, dynamic>.from(j as Map)));
+      }
+      return true;
+    } on GoCoreException catch (e) {
+      dvLog('extract: threads failed in ${sw.elapsedMilliseconds}ms: ${e.message} (${e.code})');
+      // Text-only post, or one Threads only shows to signed-in users (yt-dlp
+      // and the page scan cannot see it either): a definitive answer.
+      if (e.code == 'nomedia') {
+        ytdlpError = e.message;
+      } else if (e.code == 'unavailable') {
+        ytdlpError = loggedIn
+            ? 'Threads did not show this post to your account either (private profile you don\'t follow, or removed).'
+            : 'This post is only visible to people signed in to Threads (restricted profile or content).';
+        needsThreadsLogin = !loggedIn;
+      } else {
+        return false;
+      }
+      return true;
+    } catch (e) {
+      dvLog('extract: threads query error: $e');
+      return false;
+    } finally {
+      matchStatus = null;
+      ytdlpRunning = false;
+      _notify();
+    }
+  }
+
+  /// "Sign in to Threads": opens the login page, then retries this link.
+  Future<void> loginToThreads() async {
+    final ok = await InstagramChannel.login(site: 'threads');
+    dvLog('extract: threads login -> $ok');
+    if (ok && !_disposed) await _runThreads();
   }
 
   /// "Entrar no Instagram": opens the login page, then retries this link.

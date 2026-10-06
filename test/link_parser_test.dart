@@ -32,6 +32,8 @@ void main() {
       'https://www.youtube.com/watch?v=1': SourcePlatform.youtube,
       'https://m.youtube.com/shorts/1': SourcePlatform.youtube,
       'https://www.instagram.com/reel/abc/': SourcePlatform.instagram,
+      'https://www.threads.com/@u/post/DTvidE0xAmp': SourcePlatform.threads,
+      'https://www.threads.net/@u/post/DTvidE0xAmp?xmt=a': SourcePlatform.threads,
       'https://vm.tiktok.com/ZMabc/': SourcePlatform.tiktok,
       'https://www.kwai.com/@u/video/1': SourcePlatform.kwai,
       'https://twitter.com/u/status/1': SourcePlatform.x,

@@ -11,6 +11,8 @@ import android.webkit.WebSettings
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import android.webkit.RenderProcessGoneDetail
+import androidx.webkit.WebViewCompat
+import androidx.webkit.WebViewFeature
 import org.json.JSONObject
 
 /**
@@ -20,6 +22,9 @@ import org.json.JSONObject
  * (/api/graphql). Only public content is returned; the response is parsed by
  * the Go core (internal/instagram). Media files are then downloaded by Go
  * from Instagram's CDN, which needs no session.
+ *
+ * Mode "threads" opens a Threads post page instead and returns the post data
+ * the page embeds (same media schema, parsed by internal/instagram too).
  */
 class InstagramQuery(private val activity: Activity) {
     private val main = Handler(Looper.getMainLooper())
@@ -55,18 +60,29 @@ class InstagramQuery(private val activity: Activity) {
                 started = true
                 val mode = query.optString("mode", "public")
                 Log.i(TAG, "instagram: page ready in ${System.currentTimeMillis() - t0}ms, $mode query ${query.optString("shortcode").ifEmpty { query.optString("storyPk") }}")
-                view.evaluateJavascript(if (mode == "public") script(query) else loggedInScript(query), null)
+                view.evaluateJavascript(
+                    when (mode) {
+                        "public" -> script(query)
+                        "threads" -> threadsScript(query)
+                        else -> loggedInScript(query)
+                    },
+                    null,
+                )
             }
         }
         activity.findViewById<ViewGroup>(android.R.id.content)
             .addView(wv, 0, ViewGroup.LayoutParams(1, 1))
         main.postDelayed({ finish(Result.failure(IllegalStateException("timed out querying Instagram"))) }, TIMEOUT_MS)
+        if (query.optString("mode") == "threads" && WebViewFeature.isFeatureSupported(WebViewFeature.DOCUMENT_START_SCRIPT)) {
+            WebViewCompat.addDocumentStartJavaScript(wv, THREADS_HOOK, setOf("https://www.threads.com", "https://www.threads.net"))
+        }
         // "public": the post page itself (session token + current id of the
         // post query, which Instagram rotates). "media"/"story" (logged in):
         // any instagram.com page, for the origin and the csrftoken cookie.
+        // "threads": the Threads post page.
         val mode = query.optString("mode", "public")
         wv.loadUrl(
-            if (mode == "public") query.optString("referer").ifEmpty { "https://www.instagram.com/" }
+            if (mode == "public" || mode == "threads") query.optString("referer").ifEmpty { "https://www.instagram.com/" }
             else "https://www.instagram.com/",
         )
     }
@@ -172,9 +188,71 @@ class InstagramQuery(private val activity: Activity) {
         })();
     """.trimIndent()
 
+    /**
+     * Threads: the post page embeds its data in <script type="application/json">
+     * tags, or fetches it after loading (kept by [THREADS_HOOK]). Sends
+     * {url, scripts} with the data that mentions the post; without any,
+     * {url, html} with the page as served. The URL gives Go the post code of
+     * share links (redirected to the post).
+     */
+    private fun threadsScript(q: JSONObject) = """
+        (async function () {
+          const Q = $q;
+          try {
+            const code = Q.shortcode || (location.pathname.match(/\/post\/([A-Za-z0-9_-]+)/) || [])[1] || '';
+            // Data that mentions the post and carries media (the page also
+            // references the code in data without the post itself).
+            const pick = () => Array.from(document.querySelectorAll('script[type="application/json"]'))
+              .map(s => s.textContent).concat(window.__dvData || [])
+              .filter(t => code && t.indexOf('"' + code + '"') >= 0 && t.indexOf('image_versions2') >= 0);
+            let found = pick();
+            for (let i = 0; i < 40 && !found.length; i++) {
+              await new Promise(r => setTimeout(r, 300));
+              found = pick();
+            }
+            DVBridge.log('threads: ' + (window.__dvData || []).length + ' fetched responses with media');
+            if (found.length) {
+              DVBridge.log('threads: ' + found.length + ' data scripts for ' + code);
+              DVBridge.result(200, JSON.stringify({ url: location.href, scripts: found }));
+              return;
+            }
+            const r = await fetch(location.href, { credentials: 'include' });
+            DVBridge.log('threads: no data in the page for "' + code + '", fetched it again');
+            DVBridge.result(r.status, JSON.stringify({ url: r.url || location.href, html: await r.text() }));
+          } catch (e) {
+            DVBridge.error(String(e));
+          }
+        })();
+    """.trimIndent()
+
     companion object {
         private const val TAG = "DownVid"
         private const val TIMEOUT_MS = 25_000L
+
+        /** Keeps the responses of the page's own requests that carry media. */
+        private val THREADS_HOOK = """
+            (function () {
+              if (window.__dvData) return;
+              window.__dvData = [];
+              const keep = t => {
+                if (typeof t === 'string' && (t.indexOf('image_versions2') >= 0 || t.indexOf('video_versions') >= 0)) window.__dvData.push(t);
+              };
+              const f = window.fetch;
+              window.fetch = function () {
+                return f.apply(this, arguments).then(r => {
+                  try { r.clone().text().then(keep, () => {}); } catch (_) {}
+                  return r;
+                });
+              };
+              const send = XMLHttpRequest.prototype.send;
+              XMLHttpRequest.prototype.send = function () {
+                this.addEventListener('load', function () {
+                  try { if (this.responseType === '' || this.responseType === 'text') keep(this.responseText); } catch (_) {}
+                });
+                return send.apply(this, arguments);
+              };
+            })();
+        """.trimIndent()
 
         private fun desktopUserAgent(mobile: String): String {
             val chrome = Regex("""Chrome/([\d.]+)""").find(mobile)?.groupValues?.get(1) ?: "140.0.0.0"

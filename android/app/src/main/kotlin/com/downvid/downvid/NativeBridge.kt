@@ -214,14 +214,19 @@ class NativeBridge(private val activity: Activity, engine: FlutterEngine) {
 
     private fun initInstagram() {
         instaChannel.setMethodCallHandler { call, result ->
+            // "site": instagram (default) | threads.
+            val site = InstagramLoginActivity.Site.of(call.argument<String>("site"))
             when (call.method) {
-                "isLoggedIn" -> result.success(InstagramLoginActivity.isLoggedIn())
+                "isLoggedIn" -> result.success(InstagramLoginActivity.isLoggedIn(site))
                 "login" -> {
                     InstagramLoginActivity.pending = { ok -> activity.runOnUiThread { result.success(ok) } }
-                    activity.startActivity(android.content.Intent(activity, InstagramLoginActivity::class.java))
+                    activity.startActivity(
+                        android.content.Intent(activity, InstagramLoginActivity::class.java)
+                            .putExtra(InstagramLoginActivity.EXTRA_SITE, site.id),
+                    )
                 }
                 "logout" -> {
-                    InstagramLoginActivity.logout()
+                    InstagramLoginActivity.logout(site)
                     result.success(null)
                 }
                 "query" -> {

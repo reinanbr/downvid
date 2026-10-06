@@ -95,6 +95,8 @@ dependencies {
     // extraction (-J) and for merging streams. Downloads stay in the Go core.
     implementation("io.github.junkfood02.youtubedl-android:library:0.18.1")
     implementation("io.github.junkfood02.youtubedl-android:ffmpeg:0.18.1")
+    // Document-start scripts (Threads: keeps the post data the page fetches).
+    implementation("androidx.webkit:webkit:1.12.1")
 }
 
 // Builds libdvcore.so for every ABI (scripts/build_go.sh). Incremental:

@@ -168,16 +168,20 @@ abstract final class YtdlpChannel {
 abstract final class InstagramChannel {
   static const _ch = MethodChannel('downvid/instagram');
 
-  /// [q] from DV_InstaQuery plus "mode": public | media | story.
+  /// [q] from DV_InstaQuery plus "mode": public | media | story; or from
+  /// DV_ThreadsQuery with mode "threads" (returns the post page's data).
   static Future<String> query(Map<String, dynamic> q) async => (await _ch.invokeMethod<String>('query', q))!;
 
-  /// Whether this app holds an Instagram session (user signed in once).
-  static Future<bool> isLoggedIn() async => await _ch.invokeMethod<bool>('isLoggedIn') ?? false;
+  /// Whether this app holds a session for [site] (instagram | threads),
+  /// i.e. the user signed in once.
+  static Future<bool> isLoggedIn({String site = 'instagram'}) async =>
+      await _ch.invokeMethod<bool>('isLoggedIn', {'site': site}) ?? false;
 
-  /// Opens Instagram's login page; true once the session exists.
-  static Future<bool> login() async => await _ch.invokeMethod<bool>('login') ?? false;
+  /// Opens the site's login page; true once the session exists.
+  static Future<bool> login({String site = 'instagram'}) async =>
+      await _ch.invokeMethod<bool>('login', {'site': site}) ?? false;
 
-  static Future<void> logout() => _ch.invokeMethod('logout');
+  static Future<void> logout({String site = 'instagram'}) => _ch.invokeMethod('logout', {'site': site});
 }
 
 /// "downvid/clipboard": [info] does not read the content (Android shows no
