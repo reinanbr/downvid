@@ -114,7 +114,10 @@ jobs:
             cp "build/app/outputs/flutter-apk/app-$abi-release.apk" "dist/DownVid-$version-$abi.apk"
           done
           (cd dist && sha256sum *.apk > SHA256SUMS.txt)
-          scripts/changelog_section.sh "$version" > dist/RELEASE_NOTES.md
+          # A missing CHANGELOG section must not block the APKs: the release
+          # job falls back to GitHub's generated notes.
+          scripts/changelog_section.sh "$version" > dist/RELEASE_NOTES.md \
+            || { echo "::warning::No CHANGELOG.md section for $version"; : > dist/RELEASE_NOTES.md; }
 
       - name: Upload debug APK
         if: ${{ !startsWith(github.ref, 'refs/tags/v') }}
@@ -144,10 +147,27 @@ jobs:
           name: downvid-release
           path: dist
 
-      - uses: softprops/action-gh-release@v2
-        with:
-          name: DownVid ${{ github.ref_name }}
-          body_path: dist/RELEASE_NOTES.md
-          files: |
-            dist/*.apk
-            dist/SHA256SUMS.txt
+      # Works both for `git push origin vX.Y.Z` (creates the release) and for
+      # a release created on GitHub's site (only attaches the APKs, keeping
+      # the notes written there).
+      - name: Create or update the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          files=(dist/*.apk dist/SHA256SUMS.txt)
+          if gh release view "$TAG" > /dev/null 2>&1; then
+            gh release upload "$TAG" "${files[@]}" --clobber
+          else
+            if [ -s dist/RELEASE_NOTES.md ]; then
+              notes=(--notes-file dist/RELEASE_NOTES.md)
+            else
+              notes=(--generate-notes)
+            fi
+            # Tags such as v1.0.0-beta.1 are marked as pre-releases.
+            pre=()
+            [[ "$TAG" == *-* ]] && pre=(--prerelease)
+            gh release create "$TAG" --verify-tag --title "DownVid $TAG" \
+              "${notes[@]}" "${pre[@]}" "${files[@]}"
+          fi

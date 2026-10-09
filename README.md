@@ -14,10 +14,23 @@ queue, metadata) and a thin Kotlin layer for Android-only APIs.
 > authorized to download**, respecting each platform's terms of service and
 > copyright. You are responsible for how you use the downloaded files.
 
+<p align="center">
+  <img src="docs/screenshots/home.png" width="200" alt="Home screen">
+  <img src="docs/screenshots/share-sheet.png" width="200" alt="Download sheet opened from another app">
+  <img src="docs/screenshots/downloads.png" width="200" alt="Downloads screen">
+  <img src="docs/screenshots/dark-mode.png" width="200" alt="Home screen in dark mode">
+</p>
+
+<p align="center">
+  <a href="https://github.com/reinanbr/downvid/releases/latest"><b>⬇ Download the latest APK</b></a>
+</p>
+
 ---
 
 ## Contents
 
+- [Download](#download)
+- [Using DownVid](#using-downvid)
 - [Features](#features)
 - [How it works](#how-it-works)
   - [Architecture](#architecture)
@@ -38,6 +51,109 @@ queue, metadata) and a thin Kotlin layer for Android-only APIs.
 - [License and third-party software](#license-and-third-party-software)
 
 ---
+
+## Download
+
+Every version is built by CI and published on the
+[Releases page](https://github.com/reinanbr/downvid/releases/latest), with one
+APK per CPU type:
+
+| File | For |
+|---|---|
+| `DownVid-X.Y.Z-arm64-v8a.apk` | almost every phone from the last ~8 years — **pick this one if unsure** |
+| `DownVid-X.Y.Z-armeabi-v7a.apk` | older or low-end 32-bit phones |
+| `DownVid-X.Y.Z-x86_64.apk` | emulators and x86 Chromebooks |
+
+1. Download the APK on the phone and open it.
+2. Android asks to allow installs from your browser/file manager
+   ("Install unknown apps") — allow it once, then tap **Install**.
+3. Updates: install the newer APK over the old one; downloads and settings
+   are kept (every release is signed with the same key).
+
+Requires Android 7.0 or newer. `SHA256SUMS.txt` in each release lets you check
+the files (`sha256sum -c SHA256SUMS.txt`).
+
+## Using DownVid
+
+### 1. First launch
+
+<img src="docs/screenshots/usage-notice.png" width="220" align="right" alt="Usage notice">
+
+On the first launch DownVid shows a short usage notice: download only content
+that is yours, public, or that you are authorized to download. Tap
+**I understand** to continue. There is no account to create and nothing to
+configure — the defaults work out of the box.
+
+The home screen lists the supported sites and a few tips. The
+**Recent downloads** row appears after your first download.
+
+<br clear="right">
+
+### 2. Get a link into DownVid
+
+There are three ways, use whichever is handiest:
+
+- **Share** — in YouTube, Instagram, TikTok, the browser, etc., tap
+  *Share* and pick **Download with DownVid**. A small sheet opens on top of
+  the app you are in; you never leave it.
+- **Paste** — copy the link, open DownVid and paste it into
+  *Paste a link* (the clipboard button pastes for you), then tap
+  **Find media**. If you just copied a link, DownVid offers it as soon as it
+  opens.
+- **Quick Settings tile** — add the **Paste & download** tile to your
+  notification shade and tap it after copying a link, from anywhere.
+
+### 3. Choose what to save
+
+| Video | Audio only | Saved |
+|:---:|:---:|:---:|
+| <img src="docs/screenshots/video-options.png" width="220" alt="Video qualities"> | <img src="docs/screenshots/audio-only.png" width="220" alt="Audio formats"> | <img src="docs/screenshots/saved.png" width="220" alt="Download finished"> |
+
+The sheet shows the thumbnail, the title and every available option with its
+estimated size:
+
+- **Video** — one entry per resolution. Everything is saved as **MP4**;
+  up to 1080p the H.264 version is picked so it plays on any device.
+- **Audio only** — **M4A original** (the source audio, no conversion: fastest
+  and lossless) or **MP3** (320 kbps or V0). Title, artist, album and a
+  square cover are written into the file. Music links (YouTube Music,
+  SoundCloud, Spotify, Deezer, Apple Music) open here directly.
+- **Photos** — Instagram/Threads photos and carousels show one entry per
+  item with checkboxes, so you can pick only the ones you want.
+
+Tap **Download**. You can close the sheet right away — the download keeps
+going in the background with a progress notification (pause/cancel). When
+it finishes, **Open** plays the file.
+
+> Instagram/Threads posts that are hidden from visitors (private accounts you
+> follow, stories…) show an optional **Sign in** button. It opens the site's
+> official login page; DownVid never sees your password and the session stays
+> on the phone. You can sign out in Settings.
+
+### 4. Find your files
+
+| Downloads | Settings |
+|:---:|:---:|
+| <img src="docs/screenshots/downloads.png" width="220" alt="Downloads screen"> | <img src="docs/screenshots/settings.png" width="220" alt="Settings screen"> |
+
+The **download icon** at the top of the home screen opens **Downloads**,
+split into Videos / Music / Photos. Running downloads can be paused and
+resumed (even after the app is closed or the network drops); finished ones
+can be opened, shared or deleted from the ⋮ menu.
+
+Files go to the regular media folders, so they also show up in your gallery
+and music player:
+
+| Type | Folder |
+|---|---|
+| Videos | `Movies/DownVid` |
+| Music | `Music/DownVid` |
+| Photos | `Pictures/DownVid` |
+
+The **sliders icon** opens **Settings**: default video quality, default audio
+format, whether music links open in *Audio only*, how many downloads run at
+once, copied-link detection, and the yt-dlp extractor version (it updates
+itself every 3 days; **Update** forces it).
 
 ## Features
 
@@ -355,7 +471,10 @@ adb shell am start -a android.intent.action.SEND -t text/plain \
 - **Tags `v*`** (e.g. `v0.1.0`): builds the release APKs per ABI
   (`arm64-v8a`, `armeabi-v7a`, `x86_64`) with SHA-256 checksums, and publishes
   a GitHub Release whose notes are the matching section of
-  [`CHANGELOG.md`](CHANGELOG.md).
+  [`CHANGELOG.md`](CHANGELOG.md) (GitHub's generated notes when there is
+  none). Tags with a suffix (`v1.0.0-beta.1`) become pre-releases. If the
+  release was created on GitHub's site, the APKs are attached to it and its
+  notes are kept.
 
 To sign release APKs in CI, add these repository secrets (otherwise the APKs
 are signed with a throwaway debug key — fine for testing, but users cannot
@@ -369,7 +488,10 @@ update between builds signed with different keys):
 | `ANDROID_KEY_PASSWORD` | key password |
 
 Release steps: update `version:` in `pubspec.yaml` and `CHANGELOG.md`,
-commit, then `git tag vX.Y.Z && git push origin vX.Y.Z`.
+commit, then either `git tag vX.Y.Z && git push origin vX.Y.Z`, or create a
+release on GitHub (*Releases → Draft a new release*) with a new `vX.Y.Z` tag.
+The APKs appear on the release a few minutes later (Actions tab shows the
+progress).
 
 ## Project layout
 
