@@ -14,6 +14,21 @@ All notable changes to this project are documented here. The format follows
   official page, session kept on the device) for posts Threads only shows to
   signed-in users.
 
+### Fixed
+
+- Downloads stuck at "Saving to gallery…":
+  - Titles whose 80th character fell inside an emoji produced a file name
+    with half a surrogate pair, which MediaStore refuses. Names are now cut
+    by character (and to 180 UTF-8 bytes).
+  - A failed save was retried every 0.7 s forever. That kept the foreground
+    service and its wake lock alive, used up Android 15's 6-hour `dataSync`
+    budget and paused real downloads. The job now shows the error with a
+    **Save again** button that publishes the kept file without downloading
+    it again.
+  - Downloads resumed, retried or renewed from the Downloads screen did not
+    start the foreground service, so nothing saved them when they finished.
+    The app now starts it whenever a job becomes active or finishes.
+
 ## [0.1.0] - 2026-10-04
 
 First public release.

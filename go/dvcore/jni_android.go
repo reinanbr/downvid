@@ -78,6 +78,14 @@ func Java_com_downvid_downvid_DvCore_nativeMarkSaved(env *C.JNIEnv, clazz C.jcla
 	}
 }
 
+// nativeSaveFailed records that DownloadService could not publish a
+// finished download (the job leaves "done"; Retry saves it again).
+//
+//export Java_com_downvid_downvid_DvCore_nativeSaveFailed
+func Java_com_downvid_downvid_DvCore_nativeSaveFailed(env *C.JNIEnv, clazz C.jclass, id C.jlong, message C.jstring) {
+	jobs.MarkSaveFailed(int64(id), goStringJ(env, message))
+}
+
 //export Java_com_downvid_downvid_DvCore_nativePause
 func Java_com_downvid_downvid_DvCore_nativePause(env *C.JNIEnv, clazz C.jclass, id C.jlong) C.jboolean {
 	if jobs.Pause(int64(id)) {

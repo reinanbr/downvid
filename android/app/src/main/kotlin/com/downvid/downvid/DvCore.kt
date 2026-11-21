@@ -28,6 +28,9 @@ object DvCore {
     /** Records where the file was published (history). */
     @JvmStatic external fun nativeMarkSaved(id: Long, savedJson: String)
 
+    /** Publishing a finished file failed: the job leaves "done" (Retry saves it again). */
+    @JvmStatic external fun nativeSaveFailed(id: Long, message: String)
+
     /** Loads the persisted queue and resumes interrupted downloads. */
     @JvmStatic private external fun nativeInit(configJson: String): String
 

@@ -60,6 +60,9 @@ type Record struct {
 	Created int64   `json:"created"` // unix ms
 	Updated int64   `json:"updated"`
 	Retries int     `json:"retries,omitempty"`
+	// SaveFailed: the file was downloaded but publishing it failed (state
+	// error); Resume retries the save instead of downloading it again.
+	SaveFailed bool `json:"saveFailed,omitempty"`
 }
 
 // Status is a job as seen by the app and the foreground service.
@@ -68,10 +71,11 @@ type Status struct {
 	State string `json:"state"`
 	Meta
 	Event
-	Saved   *Saved `json:"saved,omitempty"`
-	Kind    string `json:"kind"`
-	Created int64  `json:"created"`
-	Updated int64  `json:"updated"`
+	Saved      *Saved `json:"saved,omitempty"`
+	Kind       string `json:"kind"`
+	Created    int64  `json:"created"`
+	Updated    int64  `json:"updated"`
+	SaveFailed bool   `json:"saveFailed,omitempty"`
 }
 
 var (
@@ -304,7 +308,7 @@ func requeue(id int64, from ...string) bool {
 		ok = ok || j.rec.State == f
 	}
 	if ok {
-		j.rec.State, j.rec.Updated = StateQueued, now()
+		j.rec.State, j.rec.Updated, j.rec.SaveFailed = StateQueued, now(), false
 		j.rec.Last.Type, j.rec.Last.Phase, j.rec.Last.Message = "progress", "queued", ""
 		if j.retry != nil {
 			j.retry.Stop()
@@ -352,12 +356,27 @@ func Pause(id int64) bool {
 }
 
 // Resume restarts a paused/failed job; downloads continue from partial data.
+// A job whose download finished but whose save failed goes back to "done"
+// (the service publishes it again) while its file is still there.
 func Resume(id int64) bool {
-	if j := get(id); j != nil {
-		j.mu.Lock()
-		j.rec.Retries = 0
-		j.mu.Unlock()
+	j := get(id)
+	if j == nil {
+		return false
 	}
+	j.mu.Lock()
+	j.rec.Retries = 0
+	if r := &j.rec; r.State == StateError && r.SaveFailed {
+		if path := r.Last.Path; path != "" && fileExists(path) {
+			r.State, r.SaveFailed, r.Updated = StateDone, false, now()
+			r.Last.Type, r.Last.Message = "done", ""
+			j.mu.Unlock()
+			logx.Infof("job %d: retrying the save of %s", id, path)
+			persist()
+			return true
+		}
+		// The file is gone: download it again.
+	}
+	j.mu.Unlock()
 	return requeue(id, StatePaused, StateError, StateWaiting, StateExpired)
 }
 
@@ -431,10 +450,37 @@ func Forget(id int64) {}
 func MarkSaved(id int64, s Saved) {
 	if j := get(id); j != nil {
 		j.mu.Lock()
-		j.rec.State, j.rec.Saved, j.rec.Updated = StateSaved, &s, now()
+		j.rec.State, j.rec.Saved, j.rec.Updated, j.rec.SaveFailed = StateSaved, &s, now(), false
 		j.mu.Unlock()
 		persist()
 	}
+}
+
+// MarkSaveFailed records that publishing a finished download failed. The
+// job leaves "done", so the foreground service stops retrying it (a save
+// that fails once usually fails every time), and shows as an error; the
+// downloaded file is kept and Resume tries the save again.
+func MarkSaveFailed(id int64, msg string) bool {
+	j := get(id)
+	if j == nil {
+		return false
+	}
+	j.mu.Lock()
+	r := &j.rec
+	ok := r.State == StateDone
+	if ok {
+		if r.Last.Path == "" {
+			r.Last.Path = r.Req.OutPath
+		}
+		r.State, r.SaveFailed, r.Updated = StateError, true, now()
+		r.Last.Type, r.Last.Message = "error", "Could not save to the gallery: "+msg
+	}
+	j.mu.Unlock()
+	if ok {
+		logx.Warnf("job %d: save failed: %s", id, msg)
+		persist()
+	}
+	return ok
 }
 
 // Replace gives a job new source URLs (after re-extraction of an expired
@@ -469,7 +515,7 @@ func Snapshot() []Status {
 		r := j.rec
 		out = append(out, Status{
 			ID: r.ID, State: r.State, Meta: r.Meta, Event: r.Last, Saved: r.Saved,
-			Kind: r.Req.Kind, Created: r.Created, Updated: r.Updated,
+			Kind: r.Req.Kind, Created: r.Created, Updated: r.Updated, SaveFailed: r.SaveFailed,
 		})
 		j.mu.Unlock()
 	}
@@ -540,6 +586,11 @@ func startSaver() {
 			save()
 		}
 	}()
+}
+
+func fileExists(path string) bool {
+	_, err := os.Stat(path)
+	return err == nil
 }
 
 // cleanup removes a job's partial data (output, resume state, temp dir).

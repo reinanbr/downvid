@@ -792,6 +792,8 @@ class ExtractController extends ChangeNotifier {
     if (donePath == null || _hidden) return null;
     try {
       if (serviceResult != null) {
+        // The service may have stopped meanwhile; it is what saves the file.
+        unawaited(DownloadsChannel.instance.ensureService());
         final r = await serviceResult;
         if (r['event'] != 'saved') return null;
         return SavedVideo(
@@ -801,7 +803,7 @@ class ExtractController extends ChangeNotifier {
           r['mime'] as String? ?? 'video/mp4',
         );
       }
-      return await MediaChannel.saveVideo(donePath, name);
+      return await MediaChannel.saveVideo(donePath, name, jobId: h.id >= 0 ? h.id : null);
     } catch (e) {
       dvLog('extract: item ${o.item} save failed: $e');
       return null;
@@ -894,6 +896,8 @@ class ExtractController extends ChangeNotifier {
     phase = DownloadPhase.saving;
     _notify();
     if (serviceResult != null) {
+      // The service may have stopped meanwhile; it is what saves the file.
+      unawaited(DownloadsChannel.instance.ensureService());
       final r = await serviceResult;
       if (_disposed) return;
       if (r['event'] == 'saved') {
@@ -914,7 +918,7 @@ class ExtractController extends ChangeNotifier {
     }
     // Fallback when the service could not start: save from here.
     try {
-      saved = await MediaChannel.saveVideo(donePath, videoTitle);
+      saved = await MediaChannel.saveVideo(donePath, videoTitle, jobId: h.id >= 0 ? h.id : null);
       phase = DownloadPhase.saved;
       dvLog('extract: saved ${saved!.location}/${saved!.displayName} ${saved!.uri}');
     } catch (e) {

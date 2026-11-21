@@ -88,15 +88,26 @@ class NativeBridge(private val activity: Activity, engine: FlutterEngine) {
                 "saveVideo" -> {
                     val path = call.argument<String>("path")!!
                     val title = call.argument<String>("title") ?: ""
+                    val jobId = call.argument<Number>("id")?.toLong()
                     io.execute {
                         try {
                             val saved = MediaSaver.save(activity.applicationContext, File(path), title)
+                            // Saved from the sheet (service unavailable): record it in the
+                            // job history so the job does not stay "done" forever.
+                            if (jobId != null) {
+                                DvCore.nativeMarkSaved(
+                                    jobId,
+                                    JSONObject().put("uri", saved.uri.toString()).put("displayName", saved.displayName)
+                                        .put("location", saved.location).put("mime", saved.mime).toString(),
+                                )
+                            }
                             activity.runOnUiThread {
                                 result.success(
                                     mapOf(
                                         "uri" to saved.uri.toString(),
                                         "displayName" to saved.displayName,
                                         "location" to saved.location,
+                                        "mime" to saved.mime,
                                     ),
                                 )
                             }
@@ -253,6 +264,17 @@ class NativeBridge(private val activity: Activity, engine: FlutterEngine) {
                         result.success(true)
                     } catch (e: Exception) {
                         Log.e(TAG, "track failed", e)
+                        result.success(false)
+                    }
+                }
+                // Jobs resumed/renewed in the Downloads screen run in Go
+                // without the service; it must run to save them when done.
+                "ensureService" -> {
+                    try {
+                        DownloadService.ensureRunning(activity)
+                        result.success(true)
+                    } catch (e: Exception) {
+                        Log.e(TAG, "ensureService failed", e)
                         result.success(false)
                     }
                 }

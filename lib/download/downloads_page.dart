@@ -20,11 +20,18 @@ class DownloadsPage extends StatefulWidget {
 
 const _active = {'queued', 'running', 'waiting', 'done', 'paused', 'error', 'expired'};
 
+/// States DownloadService works on (DownloadService.ACTIVE): "done" jobs are
+/// only saved to the gallery while it runs.
+const _serviceStates = {'queued', 'running', 'waiting', 'done'};
+
 class _DownloadsPageState extends State<DownloadsPage> {
   List<Map<String, dynamic>> _jobs = const [];
   Timer? _timer;
   final Set<int> _renewTried = {};
   final Set<int> _renewing = {};
+
+  /// "id:state" of the jobs the service should be handling, at the last refresh.
+  Set<String> _serviceKeys = const {};
 
   @override
   void initState() {
@@ -48,12 +55,30 @@ class _DownloadsPageState extends State<DownloadsPage> {
       final id = j['id'] as int;
       if (j['state'] == 'expired' && _renewTried.add(id)) _renew(j);
     }
+    // Jobs can become active, or finish, while the service is stopped (it
+    // stops when the queue is idle, or on Android 15's time limit): a job
+    // finished then stayed "Saving to gallery…" forever. Start it whenever a
+    // job enters one of its states.
+    final keys = {
+      for (final j in jobs)
+        if (_serviceStates.contains(j['state'])) '${j['id']}:${j['state']}',
+    };
+    if (keys.difference(_serviceKeys).isNotEmpty) unawaited(DownloadsChannel.instance.ensureService());
+    _serviceKeys = keys;
+  }
+
+  /// Resume / Retry (for a failed save: saves the downloaded file again).
+  void _resume(int id) {
+    GoCore.instance.resume(id);
+    unawaited(DownloadsChannel.instance.ensureService());
+    _refresh();
   }
 
   Future<void> _renew(Map<String, dynamic> j) async {
     final id = j['id'] as int;
     setState(() => _renewing.add(id));
     final ok = await LinkRenewer.renew(j);
+    if (ok) unawaited(DownloadsChannel.instance.ensureService());
     if (!mounted) return;
     setState(() => _renewing.remove(id));
     if (!ok) _snack('Could not renew the link of "${j['title'] ?? 'download'}".');
@@ -307,9 +332,13 @@ class _JobTile extends StatelessWidget {
           mainAxisSize: MainAxisSize.min,
           children: [
             IconButton(
-              tooltip: state == 'paused' ? 'Resume' : 'Retry',
+              tooltip: state == 'paused'
+                  ? 'Resume'
+                  : job['saveFailed'] == true
+                  ? 'Save again'
+                  : 'Retry',
               icon: Icon(state == 'paused' ? Icons.play_arrow_rounded : Icons.refresh_rounded),
-              onPressed: () => go.resume(id),
+              onPressed: () => page._resume(id),
             ),
             IconButton(tooltip: 'Remove', icon: const Icon(Icons.delete_outline), onPressed: () => go.remove(id)),
           ],

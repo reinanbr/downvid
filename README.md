@@ -184,36 +184,157 @@ itself every 3 days; **Update** forces it).
 
 ### Architecture
 
+DownVid is three layers running in **one Android process**:
+
+- **Flutter (Dart)** draws every screen and drives the flow: it classifies
+  the link, picks the extraction route, merges the options, starts the
+  download and follows it.
+- **The Go core** (`libdvcore.so`) does the heavy work that does not need
+  Android: page scanning, turning extractor output into options, HTTP and HLS
+  downloads, muxing, music metadata and the persistent download queue.
+- **Kotlin** covers only what needs Android APIs: the share entry point,
+  WebViews, the resident yt-dlp process, the foreground service,
+  notifications and MediaStore.
+
 ```
-┌──────────────────────────── Flutter (Dart) ────────────────────────────┐
-│ share sheet · home · downloads screen · settings                       │
-│ ExtractController: picks the extraction route, merges options          │
-└───────┬──────────────────────────────┬─────────────────────────────────┘
-        │ dart:ffi (ffigen bindings)   │ MethodChannels
-┌───────▼───────────────────┐  ┌───────▼─────────────────────────────────┐
-│ Go core  libdvcore.so     │  │ Kotlin                                  │
-│ scan     page analysis    │  │ ShareActivity / PasteTileService        │
-│ ytdlp    yt-dlp → options │  │ YtDlp + YtDlpServer (resident yt-dlp)   │
-│ instagram posts + Threads │  │ PageSniffer (hidden WebView)            │
-│ music    tags, matching   │  │ InstagramQuery / InstagramLogin         │
-│ hls      m3u8, AES-128    │  │ DownloadService (foreground service)    │
-│ netx     ranged download  │◄─┤ MediaSaver (MediaStore)                 │
-│ media    remux / ffmpeg   │JNI│ Settings, clipboard                     │
-│ jobs     persistent queue │  └─────────────────────────────────────────┘
-└───────────────────────────┘
+┌─────────────────────────────────── Flutter (Dart) ────────────────────────────────────┐
+│ main()       home · Downloads screen · settings                                       │
+│ shareMain()  share sheet (ShareActivity, transparent window)                          │
+│ ExtractController   picks the extraction route, merges the options,                   │
+│                     starts the job, follows its events                                │
+│ GoCore (go_core.dart)             platform_bridge.dart                                │
+└───────────┬──────────────────────────────────────────────┬────────────────────────────┘
+            │ dart:ffi (ffigen)                            │ MethodChannels
+            │ DV_* C functions, JSON                       │ downvid/sniffer, media,
+            │ events: NativeCallable                       │ downloads, ytdlp, instagram,
+            │                                              │ clipboard, settings
+┌───────────▼─ Go core: libdvcore.so ──┐     ┌─────────────▼─ Kotlin (Android APIs) ────┐
+│ scan       generic page scan         │     │ MainActivity / ShareActivity / tile      │
+│ ytdlp      yt-dlp JSON → options     │     │ NativeBridge     channel handlers        │
+│ instagram  Instagram + Threads posts │     │ YtDlp(Server)    resident yt-dlp         │
+│ music      tags, music-link matching │     │ PageSniffer      hidden WebView          │
+│ hls        m3u8, AES-128, segments   │     │ InstagramQuery   WebView queries + login │
+│ netx       ranged, resumable HTTP    │     │ DownloadService  foreground service      │
+│ media      ffmpeg / pure-Go remux    │     │ MediaSaver       MediaStore publishing   │
+│ jobs       persistent download queue │◄─JNI┤ DvCore           JNI view of the core    │
+└───────────┬──────────────────────────┘     └─────────────┬────────────────────────────┘
+            │ os/exec, files                               │ child process, MediaStore
+            ▼                                              ▼
+          ffmpeg (libffmpeg.so)                          Python + yt-dlp + QuickJS
+          files/jobs/jobs.json                           Movies|Music|Pictures/DownVid
+          no_backup/downloads/                           notifications
 ```
+
+#### Who does what
+
+| Layer | Owns | Talks to |
+|---|---|---|
+| Flutter (Dart) | Screens; link classification (`link_parser.dart`); extraction route, option merging and download start (`ExtractController`); renewal of expired links (`LinkRenewer`) | Go through `dart:ffi`; Kotlin through MethodChannels |
+| Go core | Page scan, option building, downloads (`netx`, `hls`), ffmpeg and remux (`media`), music metadata, **the job queue** (`jobs`, persisted in `files/jobs/jobs.json`) | The network, ffmpeg (`os/exec`) and its own files; it never calls Android APIs |
+| Kotlin | Entry points (`MainActivity`, `ShareActivity`, the tile), channel handlers (`NativeBridge`), yt-dlp (`YtDlp`, `YtDlpServer`), WebViews (`PageSniffer`, `InstagramQuery`), `DownloadService`, `MediaSaver` | The Android SDK, the yt-dlp child process, and Go through JNI (`DvCore`) |
+
+#### One process, one Go runtime
 
 - The Go core is built with `-buildmode=c-shared` for `arm64-v8a`,
   `armeabi-v7a` and `x86_64` (`scripts/build_go.sh`, run automatically by
   Gradle). Dart calls it through `dart:ffi`; every string returned by Go is
   freed with `DV_Free`, results are `{"ok":…,"data"|"error":…}` JSON, and
-  progress events reach Dart through `NativeCallable.listener`. Blocking
-  calls run in short-lived isolates.
-- Kotlin loads **the same** `.so` through JNI (`DvCore`), so the foreground
-  service observes the very same download queue without a Flutter engine.
+  progress events reach Dart through `NativeCallable.listener`.
+- Kotlin loads **the same** `.so` through JNI (`DvCore`). Both sides share
+  one Go runtime and one job registry, so the foreground service reads and
+  updates the very same queue without a Flutter engine. Downloads keep going
+  after the sheet or the app is closed.
+- Threads: the Dart UI isolate never blocks. Blocking Go calls run in
+  short-lived isolates (`Isolate.run`), and each download is a set of
+  goroutines. `DownloadService` polls the queue every 700 ms on the main
+  thread and writes to MediaStore on a background thread. yt-dlp runs in a
+  separate Python process.
 - [youtubedl-android](https://github.com/JunkFood02/youtubedl-android)
   provides Python, yt-dlp, QuickJS and ffmpeg for Android. DownVid only uses
   yt-dlp to **extract** (`-J`); downloading and muxing happen in Go.
+
+#### Life of a download
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor U as User
+    participant SA as ShareActivity (Kotlin)
+    participant EC as ExtractController (Dart)
+    participant Y as yt-dlp server (Kotlin + Python)
+    participant G as Go core (libdvcore.so)
+    participant DS as DownloadService (Kotlin)
+    participant MS as MediaStore
+    U->>SA: Share → "Download with DownVid"
+    SA->>Y: start extracting right away
+    SA->>EC: shareMain() opens the sheet
+    EC->>Y: info(url) over downvid/ytdlp
+    Y-->>EC: yt-dlp -J output
+    EC->>G: DV_Ytdlp(json) over FFI
+    G-->>EC: options (qualities, sizes)
+    U->>EC: picks an option, taps Download
+    EC->>G: DV_Download(request) → job id
+    EC->>DS: track(id) starts the service
+    par Go downloads the file
+        G->>G: queued → running → done (no_backup/downloads/)
+    and the service follows the queue
+        loop every 700 ms
+            DS->>G: nativeStatus() over JNI
+            DS-->>U: progress notification (Pause / Cancel)
+        end
+    and the sheet, while it is open
+        G-->>EC: progress events (NativeCallable)
+    end
+    DS->>MS: MediaSaver.save → Movies|Music|Pictures/DownVid
+    DS->>G: nativeMarkSaved(id, uri) → saved (history)
+    DS-->>EC: "saved" event → the sheet shows Open
+```
+
+Go owns the bytes until the file is complete (state `done`, file in the
+app's private `no_backup/downloads/`). **Only `DownloadService` publishes
+it**: it copies the file to MediaStore, deletes the private copy and records
+the gallery URI with `nativeMarkSaved`, which turns the job into history
+(`saved`). The sheet only watches. Closing it detaches its listener
+(`DV_Detach`), and the job carries on.
+
+#### Job states
+
+```mermaid
+stateDiagram-v2
+    [*] --> queued: DV_Download
+    queued --> running: free slot (Settings, default 2)
+    running --> done: file complete
+    running --> paused: Pause
+    running --> waiting: network error
+    waiting --> queued: retry in 10–60 s
+    running --> expired: HTTP 401/403/404/410
+    expired --> queued: link renewed (DV_Replace)
+    running --> error: other failure
+    running --> canceled: Cancel
+    paused --> queued: Resume
+    error --> queued: Retry
+    done --> saved: published by DownloadService
+    done --> error: save failed (file kept)
+    error --> done: Save again
+    saved --> [*]
+    canceled --> [*]
+```
+
+- Every transition is written to `files/jobs/jobs.json` (atomically; progress
+  every 3 s). On start, `running` and `waiting` jobs go back to `queued` and
+  continue from their partial data; a `done` job whose file is gone becomes
+  `error`.
+- `DownloadService` runs while any job is `queued`, `running`, `waiting` or
+  `done`, and stops when the queue is idle (or when Android 15's daily
+  `dataSync` limit is hit). Jobs can become active while it is stopped
+  (Resume/Retry on the Downloads screen, a renewed link), so the UI starts it
+  again whenever a job enters one of those states. Without that, a finished
+  file would sit in `done` ("Saving to gallery…") until the app restarted.
+- A save that fails moves the job to `error` with `saveFailed` set and keeps
+  the downloaded file. The service does not retry it on its own, because a
+  save that fails once usually fails every time. **Save again** on the
+  Downloads screen puts the job back in `done`, and the file is published
+  without downloading it again.
 
 ### From a shared link to the download sheet
 
@@ -368,7 +489,11 @@ they cannot be saved as MP4 without re-encoding, and files under 1 MB
   was pending. `DownloadService` (foreground service, type `dataSync`) polls
   the queue through JNI, shows per-download notifications with Pause/Cancel,
   publishes finished files and records them in the history. Closing or
-  hiding the sheet never cancels a download.
+  hiding the sheet never cancels a download. See [Job states](#job-states)
+  for when the service runs and how failed saves are retried.
+- Gallery file names come from the title, cut to 80 characters and 180
+  UTF-8 bytes without splitting an emoji. MediaStore rejects names that end
+  in half of a surrogate pair.
 
 ### Storage and permissions
 

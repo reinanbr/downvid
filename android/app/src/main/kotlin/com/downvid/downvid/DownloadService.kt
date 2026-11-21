@@ -107,7 +107,8 @@ class DownloadService : Service() {
             }
             "done" -> if (id !in saving) save(id, title, s)
             "paused", "canceled" -> if (shown.remove(id)) nm.cancel(notifId(id))
-            "error", "expired" -> if (fresh && reported.add(id)) {
+            // A failed save (error while still in `saving`) posts its own notification.
+            "error", "expired" -> if (fresh && id !in saving && reported.add(id)) {
                 shown -= id
                 val headline = if (state == "expired") "Link expired" else "Download failed"
                 val text = if (state == "expired") "Open DownVid to continue (the link will be renewed)." else s.optString("message")
@@ -144,11 +145,17 @@ class DownloadService : Service() {
                 }
             } catch (e: Exception) {
                 Log.e(TAG, "service: save failed for job $id", e)
+                val message = e.message ?: "$e"
+                // Take the job out of "done": otherwise every poll retried the
+                // save, the service (and its wake lock) never stopped and the
+                // Android 15 dataSync budget ran out, pausing real downloads.
+                DvCore.nativeSaveFailed(id, message)
                 main.post {
                     saving -= id
                     shown -= id
-                    nm.notify(notifId(id), resultNotification(title, "Could not save", e.message ?: "$e", null))
-                    broadcast(mapOf("event" to "saveFailed", "id" to id, "message" to (e.message ?: "$e")))
+                    reported += id
+                    nm.notify(notifId(id), resultNotification(title, "Could not save", message, null))
+                    broadcast(mapOf("event" to "saveFailed", "id" to id, "message" to message))
                 }
             }
         }
@@ -377,7 +384,7 @@ class DownloadService : Service() {
             )
         }
 
-        /** Compatibility with the sheet's flow: a new job was queued. */
+        /** A job was queued, resumed or finished from the UI. */
         fun track(context: Context, id: Long, title: String) = ensureRunning(context)
     }
 }

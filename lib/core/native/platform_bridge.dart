@@ -94,8 +94,12 @@ abstract final class MediaChannel {
 
   static Future<String> workDir() async => (await _ch.invokeMethod<String>('workDir'))!;
 
-  static Future<SavedVideo> saveVideo(String path, String title) async {
-    final r = Map<String, dynamic>.from((await _ch.invokeMethod<Map>('saveVideo', {'path': path, 'title': title}))!);
+  /// Publishes [path] to the gallery. With [jobId], also records it in the
+  /// job history (only used when the foreground service could not start).
+  static Future<SavedVideo> saveVideo(String path, String title, {int? jobId}) async {
+    final r = Map<String, dynamic>.from(
+      (await _ch.invokeMethod<Map>('saveVideo', {'path': path, 'title': title, 'id': ?jobId}))!,
+    );
     return SavedVideo(
       r['uri'] as String,
       r['displayName'] as String,
@@ -134,6 +138,17 @@ class DownloadsChannel {
 
   Future<bool> track(int id, String title) async =>
       await _ch.invokeMethod<bool>('track', {'id': id, 'title': title}) ?? false;
+
+  /// Starts DownloadService if it is not running. It is what saves finished
+  /// jobs to the gallery, so it must run whenever a job becomes active or
+  /// finishes outside the sheet's flow (Resume/Retry, renewed links).
+  Future<bool> ensureService() async {
+    try {
+      return await _ch.invokeMethod<bool>('ensureService') ?? false;
+    } catch (_) {
+      return false;
+    }
+  }
 
   /// Asks for POST_NOTIFICATIONS on Android 13+ (no-op when granted).
   Future<bool> ensureNotificationPermission() async =>
