@@ -93,6 +93,8 @@ data class ExtractState(
     val itemsTotal: Int = 0,
     val itemsSaved: Int = 0,
     val itemsFailed: Int = 0,
+    /** Keys of the options of the video being watched (listed first). */
+    val focusKeys: Set<String> = emptySet(),
 ) {
     val scanning get() = ytdlpRunning || staticScanning || sniffing || pendingProbes > 0
 
@@ -212,7 +214,7 @@ class Extractor(
             genericStarted = genericStarted, staticScanning = staticScanning, sniffing = sniffing,
             sniffedCount = sniffedCount, pendingProbes = pendingProbes, scanError = scanError,
             needsInstagramLogin = needsInstagramLogin, needsThreadsLogin = needsThreadsLogin,
-            checkedItems = checkedItems.toSet(),
+            checkedItems = checkedItems.toSet(), focusKeys = focusKeys(),
         )
     }
 
@@ -255,6 +257,28 @@ class Extractor(
      * detected ([detected]), so there is no hidden-WebView scan; yt-dlp
      * runs alongside.
      */
+    /**
+     * The video being watched on the page (the URL playing, its master
+     * playlist or a variant): on a page with several videos (a feed), its
+     * options are listed first and the default choice is one of them.
+     */
+    var focus: String? = null
+
+    private fun focusGroup(): String? = focusGroupOf(options, focus)
+
+    private fun focusKeys(): Set<String> {
+        val g = focusGroup() ?: return emptySet()
+        // Only worth marking when other videos are listed too.
+        if (options.all { groupOf(it) == g }) return emptySet()
+        return options.filter { groupOf(it) == g }.mapTo(HashSet()) { it.key }
+    }
+
+    private fun sortOptions() {
+        val sorted = ordered(options, focus)
+        options.clear()
+        options += sorted
+    }
+
     fun startDetected(detected: ExtractResult) {
         if (startJob != null) return
         Log.i(TAG, "extract: browser page $pageUrl platform=$platform (${detected.options.size} detected)")
@@ -447,7 +471,7 @@ class Extractor(
             known += s.url
             skipped += s
         }
-        options.sortWith(COMPARE)
+        sortOptions()
         // Carousel: every item starts ticked.
         if (checkedItems.isEmpty() && options.any { it.itemCount > 1 }) {
             options.filter { it.item > 0 }.mapTo(checkedItems) { it.item }
@@ -475,8 +499,10 @@ class Extractor(
                 ?: audioOptions.firstOrNull { it.audioFormat == fmt }
                 ?: audioOptions.first()
         }
-        val v = visibleOptions()
-        if (v.isEmpty()) return null
+        val all = visibleOptions()
+        if (all.isEmpty()) return null
+        val fg = focusGroup()
+        val v = all.filter { groupOf(it) == fg }.ifEmpty { all }
         if (s.videoMaxHeight > 0) {
             v.firstOrNull { it.height in 1..s.videoMaxHeight }?.let { return it }
         }
@@ -977,6 +1003,24 @@ class Extractor(
                 a.bandwidth != b.bandwidth -> b.bandwidth.compareTo(a.bandwidth)
                 else -> b.size.compareTo(a.size)
             }
+        }
+
+        private fun groupOf(o: MediaOption) = o.group.ifEmpty { o.url }
+
+        /** The group (video) of [focus]: a URL of one of [options], or their master playlist. */
+        internal fun focusGroupOf(options: List<MediaOption>, focus: String?): String? =
+            focus?.takeIf { it.isNotEmpty() }?.let { f -> options.firstOrNull { it.url == f || it.group == f }?.let(::groupOf) }
+
+        /**
+         * Best first, with each video's qualities together (the variants of
+         * a master playlist share its group), videos ordered by their best
+         * quality, and the watched video ([focus]) first.
+         */
+        internal fun ordered(options: List<MediaOption>, focus: String?): List<MediaOption> {
+            val fg = focusGroupOf(options, focus)
+            return options.sortedWith(COMPARE).groupBy(::groupOf).values
+                .sortedBy { if (groupOf(it[0]) == fg) 0 else 1 }
+                .flatten()
         }
 
         /** Size label "~12 MB" / "12 MB" of an option. */

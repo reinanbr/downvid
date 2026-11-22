@@ -85,6 +85,8 @@ class BrowserTab(
     internal var offerEvent: PlayEvent? = null
     /** DownVid's player in place of a page video. */
     var inline by mutableStateOf<InlineVideo?>(null)
+    /** The URL of the last video played from this page (the sheet lists it first). */
+    internal var watched: String? = null
     /** WebView scroll (device px), for the in-page player's position. */
     var scrollX by mutableIntStateOf(0)
     var scrollY by mutableIntStateOf(0)
@@ -546,6 +548,7 @@ class BrowserModel(private val activity: Activity) {
         }
         val req = playRequestFor(tab, ev) ?: return
         Log.i(TAG, "browser: page plays ${ev.src.take(80)} -> ${req.url.take(120)}")
+        tab.watched = req.url
         tab.playOffer = req
         tab.offerEvent = ev
     }
@@ -587,6 +590,7 @@ class BrowserModel(private val activity: Activity) {
             detected = tab.detector.state.value.asResult(tab.displayTitle),
         )
         tab.inline = InlineVideo(ev.id, item, reply)
+        tab.watched = req.url
         // (Re)starts the script's tracking: the position comes right after.
         reply("take:${ev.id}")
         PlayerHub.play(activity, item, inPage = true)

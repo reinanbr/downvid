@@ -6,6 +6,14 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Changed
+
+- The browser's download sheet on a page with several videos (feeds such as
+  Reddit's) lists the one you are watching first, under "Playing on this
+  page", and preselects it; the other videos follow with each one's
+  qualities together instead of every quality of every video mixed. The
+  player's download button does the same for the video it plays.
+
 ## [0.2.0] - 2026-11-22
 
 ### Added

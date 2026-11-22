@@ -130,6 +130,8 @@ fun BrowserSheetContent(
     pageUrl: String,
     detected: ExtractResult,
     headers: Headers,
+    /** The URL of the video being watched, listed first ([Extractor.focus]). */
+    focus: String? = null,
     onPlay: (MediaOption, Extractor) -> Unit,
     onClose: () -> Unit,
     modifier: Modifier = Modifier,
@@ -147,6 +149,7 @@ fun BrowserSheetContent(
         }
     }
     DisposableEffect(extractor) {
+        extractor?.focus = focus
         extractor?.startDetected(detected)
         onDispose { extractor?.dispose() }
     }
@@ -203,9 +206,19 @@ private fun SheetBody(
         Spacer(Modifier.height(8.dp))
         val hidden = if (audio) emptyList() else s.skipped + s.options.filter { it.small && it !in s.visibleOptions }
             .map { Skipped(it.url, "preview/fragment (${formatBytes(it.size)})") }
+        val focused = if (audio) emptySet() else s.focusKeys
         LazyColumn(Modifier.heightIn(max = maxList)) {
-            items(s.modeOptions, key = { it.key }) { o ->
-                OptionTile(o, o == s.selected, onPlay = onPlay?.takeIf { o.playable }?.let { { it(o) } }) { x.select(o) }
+            s.modeOptions.forEachIndexed { i, o ->
+                if (focused.isNotEmpty()) {
+                    val inFocus = o.key in focused
+                    if (i == 0 && inFocus) item(key = "h-focus") { GroupHeader("Playing on this page") }
+                    if (!inFocus && (i == 0 || s.modeOptions[i - 1].key in focused)) {
+                        item(key = "h-other") { GroupHeader("Other videos on this page") }
+                    }
+                }
+                item(key = o.key) {
+                    OptionTile(o, o == s.selected, onPlay = onPlay?.takeIf { o.playable }?.let { { it(o) } }) { x.select(o) }
+                }
             }
             if (hidden.isNotEmpty()) item { SkippedTile(hidden) }
         }
@@ -339,6 +352,16 @@ private fun ScanStatus(x: Extractor, s: ExtractState) {
         Text(text, style = MaterialTheme.typography.bodyMedium, color = scheme.onSurfaceVariant, modifier = Modifier.weight(1f))
         if (!done && n > 0) Text("$n", style = MaterialTheme.typography.labelLarge)
     }
+}
+
+@Composable
+private fun GroupHeader(text: String) {
+    Text(
+        text,
+        style = MaterialTheme.typography.labelLarge,
+        color = MaterialTheme.colorScheme.primary,
+        modifier = Modifier.padding(start = 4.dp, top = 6.dp, bottom = 6.dp),
+    )
 }
 
 @Composable

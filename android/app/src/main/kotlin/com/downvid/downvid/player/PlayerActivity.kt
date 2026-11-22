@@ -647,6 +647,7 @@ internal fun PlayerScreen(
                     pageUrl = item.pageUrl.ifEmpty { item.url },
                     detected = d,
                     headers = item.headers,
+                    focus = item.url,
                     onPlay = { o, x ->
                         scope.launch { state.hide() }.invokeOnCompletion { showDownload = false }
                         PlayerHub.open(activity, o.toPlayItem(item, x.headersFor(o)))

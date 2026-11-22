@@ -570,6 +570,7 @@ private fun MediaSheet(model: BrowserModel, tab: BrowserTab, close: () -> Unit) 
             pageUrl = tab.url,
             detected = detected,
             headers = model.headersFor(tab, null),
+            focus = remember(tab.id) { tab.inline?.item?.url ?: tab.playOffer?.url ?: tab.watched },
             onPlay = { o, x ->
                 close()
                 model.pausePage(tab)
