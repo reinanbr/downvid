@@ -11,172 +11,183 @@ import android.content.pm.ServiceInfo
 import android.net.Uri
 import android.net.wifi.WifiManager
 import android.os.Build
-import android.os.Handler
 import android.os.IBinder
-import android.os.Looper
 import android.os.PowerManager
+import android.os.SystemClock
 import android.util.Log
 import androidx.core.app.NotificationCompat
 import androidx.core.app.ServiceCompat
 import androidx.core.content.ContextCompat
-import org.json.JSONArray
-import org.json.JSONObject
+import com.downvid.downvid.core.Job
+import com.downvid.downvid.core.JobController
+import com.downvid.downvid.core.SavedFile
+import com.downvid.downvid.ui.formatBytes
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.io.File
-import java.util.concurrent.CopyOnWriteArraySet
-import java.util.concurrent.Executors
 
 /**
  * Foreground service that keeps the download queue alive.
  *
- * Downloads run in the Go core (persistent queue, see go/internal/jobs). This
- * service polls their status (DvCore.nativeStatus) and, for every active job,
- * shows a notification (queued / downloading with Pause + Cancel / waiting
- * for network). Finished files are published to MediaStore and recorded in
- * the history (nativeMarkSaved). It stops when nothing is active.
+ * Downloads run in the Go core (persistent queue, go/internal/jobs). The
+ * service follows [JobController.jobs] (pushed by the core's change feed, no
+ * polling) and, for every active job, shows a notification (queued /
+ * downloading with Pause + Cancel / waiting for network). Finished files are
+ * published to MediaStore and recorded in the history. It stops when
+ * nothing is active.
  */
 class DownloadService : Service() {
-    private val main = Handler(Looper.getMainLooper())
-    private val io = Executors.newSingleThreadExecutor()
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     private val saving = HashSet<Long>()
+    /**
+     * Jobs whose save already ran, until the feed shows them out of "done":
+     * the job list can still be the snapshot from before markSaved, and
+     * saving it again found the file already moved and replaced "Download
+     * complete" with "Could not save".
+     */
+    private val saveRan = HashSet<Long>()
     private val shown = HashSet<Long>() // ids with an ongoing notification
     private val reported = HashSet<Long>() // final notifications already posted
+    /** Last progress notification per job: (time, content) — at most 1/s. */
+    private val lastPosted = HashMap<Long, Pair<Long, String>>()
     private var foregroundId = 0
     private val startedAt = System.currentTimeMillis()
     private var wakeLock: PowerManager.WakeLock? = null
     private var wifiLock: WifiManager.WifiLock? = null
     private lateinit var nm: NotificationManager
+    private var watching = false
 
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onCreate() {
         super.onCreate()
+        running = true
         nm = getSystemService(NotificationManager::class.java)
         createChannels()
-        DvCore.ensureInit(applicationContext)
+        JobController.start(applicationContext)
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         val id = intent?.getLongExtra(EXTRA_ID, -1) ?: -1
         when (intent?.action) {
-            ACTION_CANCEL -> DvCore.nativeCancel(id).also { Log.i(TAG, "service: cancel job $id from notification") }
-            ACTION_PAUSE -> DvCore.nativePause(id).also { Log.i(TAG, "service: pause job $id from notification") }
+            ACTION_CANCEL -> JobController.cancel(id)
+            ACTION_PAUSE -> JobController.pause(id)
         }
         // startForegroundService requires startForeground promptly.
         if (foregroundId == 0) promote(FG_PLACEHOLDER, placeholderNotification())
         acquireLocks()
-        main.removeCallbacks(poll)
-        main.post(poll)
+        if (!watching) {
+            watching = true
+            scope.launch { JobController.jobs.collect { onJobs(it) } }
+        }
         return START_NOT_STICKY
     }
 
-    private val poll = object : Runnable {
-        override fun run() {
-            val jobs = try {
-                JSONArray(DvCore.nativeStatus())
-            } catch (e: Exception) {
-                Log.e(TAG, "service: status failed", e)
-                JSONArray()
-            }
-            val activeIds = ArrayList<Long>()
-            val seen = HashSet<Long>()
-            for (i in 0 until jobs.length()) {
-                val s = jobs.getJSONObject(i)
-                val id = s.getLong("id")
-                seen += id
-                val state = s.optString("state")
-                if (state in ACTIVE) activeIds += id
-                handle(id, state, s)
-            }
-            // Jobs removed from the queue (deleted in the app).
-            for (id in shown.filter { it !in seen }) {
-                nm.cancel(notifId(id))
-                shown -= id
-            }
-            updateForeground(activeIds, jobs)
-            if (activeIds.isNotEmpty() || saving.isNotEmpty()) main.postDelayed(this, POLL_MS) else stopIdle()
+    private fun onJobs(jobs: List<Job>) {
+        if (!JobController.loaded.value) return
+        val seen = HashSet<Long>(jobs.size)
+        var oldestActive: Job? = null
+        for (j in jobs) {
+            seen += j.id
+            if (j.state != "done") saveRan -= j.id
+            if (j.needsService) oldestActive = j // list is newest first
+            handle(j)
+        }
+        // Jobs removed from the queue (deleted in the app).
+        for (id in shown.filter { it !in seen }) {
+            nm.cancel(notifId(id))
+            shown -= id
+        }
+        if (oldestActive != null) {
+            updateForeground(oldestActive)
+        } else if (saving.isEmpty()) {
+            stopIdle()
         }
     }
 
-    private fun handle(id: Long, state: String, s: JSONObject) {
-        val title = s.optString("title").ifEmpty { "Download" }
-        val fresh = s.optLong("updated") >= startedAt // don't re-announce old history
-        when (state) {
+    private fun handle(j: Job) {
+        val title = j.title?.ifEmpty { null } ?: "Download"
+        val fresh = j.updated >= startedAt // don't re-announce old history
+        when (j.state) {
             "running", "queued", "waiting" -> {
-                nm.notify(notifId(id), progressNotification(id, title, state, s))
-                shown += id
+                val n = progressContent(j)
+                val now = SystemClock.elapsedRealtime()
+                val last = lastPosted[j.id]
+                // Throttled to 1/s unless the state/phase line changed.
+                if (last == null || (last.second != n && (now - last.first >= 1000 || last.second.substringBefore('|') != n.substringBefore('|')))) {
+                    lastPosted[j.id] = now to n
+                    val notification = progressNotification(j, title)
+                    if (foregroundId == notifId(j.id)) nm.notify(foregroundId, notification) else nm.notify(notifId(j.id), notification)
+                }
+                shown += j.id
             }
-            "done" -> if (id !in saving) save(id, title, s)
-            "paused", "canceled" -> if (shown.remove(id)) nm.cancel(notifId(id))
-            // A failed save (error while still in `saving`) posts its own notification.
-            "error", "expired" -> if (fresh && id !in saving && reported.add(id)) {
-                shown -= id
-                val headline = if (state == "expired") "Link expired" else "Download failed"
-                val text = if (state == "expired") "Open DownVid to continue (the link will be renewed)." else s.optString("message")
-                nm.notify(notifId(id), resultNotification(title, headline, text, null))
+            "done" -> if (j.id !in saving && j.id !in saveRan) save(j, title)
+            "paused", "canceled" -> {
+                lastPosted -= j.id
+                if (shown.remove(j.id)) nm.cancel(notifId(j.id))
+            }
+            // A failed save posts its own notification.
+            "error", "expired" -> {
+                lastPosted -= j.id
+                if (fresh && j.id !in saving && !j.saveFailed && reported.add(j.id)) {
+                    shown -= j.id
+                    val headline = if (j.state == "expired") "Link expired" else "Download failed"
+                    val text = if (j.state == "expired") "Open DownVid to continue (the link will be renewed)." else j.message.orEmpty()
+                    nm.notify(notifId(j.id), resultNotification(title, headline, text, null))
+                }
             }
         }
     }
 
-    private fun save(id: Long, title: String, s: JSONObject) {
+    private fun save(j: Job, title: String) {
+        val id = j.id
         saving += id
-        val path = s.optString("path")
-        val warning = s.optString("warning").ifEmpty { null }
+        lastPosted -= id
         nm.notify(notifId(id), savingNotification(title))
         shown += id
-        io.execute {
-            try {
-                val saved = MediaSaver.save(applicationContext, File(path), title)
-                DvCore.nativeMarkSaved(
-                    id,
-                    JSONObject().put("uri", saved.uri.toString()).put("displayName", saved.displayName)
-                        .put("location", saved.location).put("mime", saved.mime).toString(),
-                )
-                main.post {
-                    saving -= id
-                    shown -= id
-                    val text = saved.displayName + (warning?.let { " · $it" } ?: "")
-                    nm.notify(notifId(id), resultNotification(title, "Download complete", text, saved.uri, saved.mime))
-                    broadcast(
-                        mapOf(
-                            "event" to "saved", "id" to id, "uri" to saved.uri.toString(),
-                            "displayName" to saved.displayName, "location" to saved.location, "mime" to saved.mime,
-                        ),
-                    )
-                }
-            } catch (e: Exception) {
-                Log.e(TAG, "service: save failed for job $id", e)
-                val message = e.message ?: "$e"
-                // Take the job out of "done": otherwise every poll retried the
-                // save, the service (and its wake lock) never stopped and the
-                // Android 15 dataSync budget ran out, pausing real downloads.
-                DvCore.nativeSaveFailed(id, message)
-                main.post {
-                    saving -= id
-                    shown -= id
-                    reported += id
-                    nm.notify(notifId(id), resultNotification(title, "Could not save", message, null))
-                    broadcast(mapOf("event" to "saveFailed", "id" to id, "message" to message))
+        scope.launch {
+            val result = withContext(Dispatchers.IO) {
+                runCatching {
+                    val saved = MediaSaver.save(applicationContext, File(j.path.orEmpty()), title)
+                    JobController.markSaved(id, SavedFile(saved.uri.toString(), saved.displayName, saved.location, saved.mime))
+                    saved
+                }.onFailure { e ->
+                    Log.e(TAG, "service: save failed for job $id", e)
+                    // Take the job out of "done": otherwise it would be saved
+                    // again on every update and the service (and its wake
+                    // lock) would never stop.
+                    runCatching { JobController.saveFailed(id, e.message ?: "$e") }
                 }
             }
+            saving -= id
+            saveRan += id
+            shown -= id
+            result.onSuccess { saved ->
+                val text = saved.displayName + (j.warning?.let { " · $it" } ?: "")
+                nm.notify(notifId(id), resultNotification(title, "Download complete", text, saved.uri, saved.mime))
+            }.onFailure { e ->
+                reported += id
+                nm.notify(notifId(id), resultNotification(title, "Could not save", e.message ?: "$e", null))
+            }
+            // The core's change (markSaved / saveFailed) arrives through the
+            // feed; re-check now in case it was the last job.
+            onJobs(JobController.jobs.value)
         }
     }
 
-    /** The foreground notification follows the first active job. */
-    private fun updateForeground(activeIds: List<Long>, jobs: JSONArray) {
-        val first = activeIds.lastOrNull() ?: return // oldest active (list is newest first)
-        if (foregroundId == notifId(first)) return
-        for (i in 0 until jobs.length()) {
-            val s = jobs.getJSONObject(i)
-            if (s.getLong("id") == first) {
-                promote(notifId(first), progressNotification(first, s.optString("title"), s.optString("state"), s))
-                nm.cancel(FG_PLACEHOLDER)
-                return
-            }
-        }
+    /** The foreground notification follows the oldest active job. */
+    private fun updateForeground(j: Job) {
+        if (foregroundId == notifId(j.id)) return
+        if (j.state == "done") return // its "Saving…" notification is not ongoing-progress
+        promote(notifId(j.id), progressNotification(j, j.title.orEmpty()))
+        nm.cancel(FG_PLACEHOLDER)
     }
 
     private fun stopIdle() {
-        main.removeCallbacks(poll)
         releaseLocks()
         ServiceCompat.stopForeground(this, ServiceCompat.STOP_FOREGROUND_DETACH)
         nm.cancel(FG_PLACEHOLDER)
@@ -193,18 +204,14 @@ class DownloadService : Service() {
     // Android 15: dataSync services get a daily time budget.
     override fun onTimeout(startId: Int, fgsType: Int) {
         Log.w(TAG, "service: foreground time limit reached; pausing downloads")
-        val jobs = JSONArray(DvCore.nativeStatus())
-        for (i in 0 until jobs.length()) {
-            val s = jobs.getJSONObject(i)
-            if (s.optString("state") in ACTIVE) DvCore.nativePause(s.getLong("id"))
-        }
+        for (j in JobController.jobs.value) if (j.state in setOf("queued", "running", "waiting")) JobController.pause(j.id)
         stopIdle()
     }
 
     override fun onDestroy() {
-        main.removeCallbacks(poll)
+        running = false
+        scope.cancel()
         releaseLocks()
-        io.shutdown()
         super.onDestroy()
     }
 
@@ -224,43 +231,49 @@ class DownloadService : Service() {
 
     private fun placeholderNotification() = NotificationCompat.Builder(this, CH_PROGRESS)
         .setSmallIcon(R.drawable.ic_stat_downvid)
-        .setColor(0xFF7B5CFF.toInt())
+        .setColor(BRAND)
         .setContentTitle("DownVid")
         .setContentText("Preparing downloads…")
         .setSilent(true)
         .build()
 
-    private fun progressNotification(id: Long, title: String, state: String, s: JSONObject): Notification {
-        val phase = s.optString("phase")
-        val percent = s.optDouble("percent", 0.0)
-        val (text, indeterminate) = when {
-            state == "queued" -> "Queued" to true
-            state == "waiting" -> "No connection — retrying…" to true
-            phase == "muxing" -> "Converting to MP4…" to true
-            phase == "converting" -> "Converting audio… ${percent.toInt()}%" to (percent <= 0.0)
-            else -> progressText(s) to (percent <= 0.0)
-        }
+    /** "state line|details": the first part changing bypasses the throttle. */
+    private fun progressContent(j: Job): String {
+        val (text, _) = progressText(j)
+        return "${j.state}/${j.phase}|$text|${j.percent.toInt()}"
+    }
+
+    private fun progressText(j: Job): Pair<String, Boolean> = when {
+        j.state == "queued" -> "Queued" to true
+        j.state == "waiting" -> "No connection — retrying…" to true
+        j.phase == "muxing" -> "Converting to MP4…" to true
+        j.phase == "converting" -> "Converting audio… ${j.percent.toInt()}%" to (j.percent <= 0.0)
+        else -> bytesText(j) to (j.percent <= 0.0)
+    }
+
+    private fun progressNotification(j: Job, title: String): Notification {
+        val (text, indeterminate) = progressText(j)
         val b = NotificationCompat.Builder(this, CH_PROGRESS)
             .setSmallIcon(R.drawable.ic_stat_downvid)
-            .setColor(0xFF7B5CFF.toInt())
-            .setContentTitle(title)
+            .setColor(BRAND)
+            .setContentTitle(title.ifEmpty { "Download" })
             .setContentText(text)
-            .setSubText(if (percent > 0) "${percent.toInt()}%" else null)
-            .setProgress(100, percent.toInt(), indeterminate)
+            .setSubText(if (j.percent > 0) "${j.percent.toInt()}%" else null)
+            .setProgress(100, j.percent.toInt(), indeterminate)
             .setOngoing(true)
             .setOnlyAlertOnce(true)
             .setSilent(true)
             .setCategory(NotificationCompat.CATEGORY_PROGRESS)
             .setForegroundServiceBehavior(NotificationCompat.FOREGROUND_SERVICE_IMMEDIATE)
             .setContentIntent(openAppIntent())
-        if (state == "running" || state == "waiting") b.addAction(0, "Pause", actionIntent(ACTION_PAUSE, id))
-        b.addAction(0, "Cancel", actionIntent(ACTION_CANCEL, id))
+        if (j.state == "running" || j.state == "waiting") b.addAction(0, "Pause", actionIntent(ACTION_PAUSE, j.id))
+        b.addAction(0, "Cancel", actionIntent(ACTION_CANCEL, j.id))
         return b.build()
     }
 
     private fun savingNotification(title: String) = NotificationCompat.Builder(this, CH_PROGRESS)
         .setSmallIcon(R.drawable.ic_stat_downvid)
-        .setColor(0xFF7B5CFF.toInt())
+        .setColor(BRAND)
         .setContentTitle(title)
         .setContentText("Saving to gallery…")
         .setProgress(100, 0, true)
@@ -271,7 +284,7 @@ class DownloadService : Service() {
     private fun resultNotification(title: String, headline: String, text: String, uri: Uri?, mime: String = "video/mp4") =
         NotificationCompat.Builder(this, CH_DONE)
             .setSmallIcon(if (uri != null) R.drawable.ic_stat_downvid else android.R.drawable.stat_notify_error)
-            .setColor(0xFF7B5CFF.toInt())
+            .setColor(BRAND)
             .setContentTitle(headline)
             .setContentText(title)
             .setStyle(NotificationCompat.BigTextStyle().bigText("$title\n$text"))
@@ -279,31 +292,16 @@ class DownloadService : Service() {
             .setContentIntent(if (uri != null) openMediaIntent(uri, mime) else openAppIntent())
             .build()
 
-    private fun progressText(s: JSONObject): String {
-        val bytes = s.optLong("bytes")
-        val total = s.optLong("total", -1)
-        val speed = s.optDouble("speedBps", 0.0)
-        val segs = s.optInt("segmentsTotal")
+    private fun bytesText(j: Job): String {
         val parts = mutableListOf<String>()
-        parts += if (total > 0) {
-            "${fmt(bytes)} / ${if (s.optBoolean("totalEstimate")) "~" else ""}${fmt(total)}"
+        parts += if (j.total > 0) {
+            "${formatBytes(j.bytes)} / ${if (j.totalEstimate) "~" else ""}${formatBytes(j.total)}"
         } else {
-            fmt(bytes)
+            formatBytes(j.bytes)
         }
-        if (speed > 0) parts += "${fmt(speed.toLong())}/s"
-        if (segs > 0) parts += "seg ${s.optInt("segmentsDone")}/$segs"
+        if (j.speedBps > 0) parts += "${formatBytes(j.speedBps.toLong())}/s"
+        if (j.segmentsTotal > 0) parts += "seg ${j.segmentsDone}/${j.segmentsTotal}"
         return parts.joinToString(" · ")
-    }
-
-    private fun fmt(b: Long): String {
-        val units = arrayOf("B", "KB", "MB", "GB")
-        var v = b.toDouble()
-        var i = 0
-        while (v >= 1024 && i < units.size - 1) {
-            v /= 1024
-            i++
-        }
-        return if (i == 0 || v >= 100) "${v.toInt()} ${units[i]}" else String.format("%.1f %s", v, units[i])
     }
 
     private fun actionIntent(action: String, id: Long): PendingIntent = PendingIntent.getService(
@@ -314,7 +312,9 @@ class DownloadService : Service() {
 
     private fun openAppIntent(): PendingIntent = PendingIntent.getActivity(
         this, 0,
-        Intent(this, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP),
+        Intent(this, MainActivity::class.java)
+            .setAction(MainActivity.ACTION_DOWNLOADS)
+            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP),
         PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
     )
 
@@ -361,30 +361,26 @@ class DownloadService : Service() {
         private const val EXTRA_ID = "id"
         private const val CH_PROGRESS = "downloads"
         private const val CH_DONE = "downloads_done"
-        private const val POLL_MS = 700L
         private const val WAKE_TIMEOUT_MS = 3 * 60 * 60 * 1000L
         private const val FG_PLACEHOLDER = 999
+        private const val BRAND = 0xFF7B5CFF.toInt()
 
-        /** States that keep the service (and its notification) alive. */
-        val ACTIVE = setOf("queued", "running", "waiting", "done")
+        @Volatile var running = false
+            private set
 
         private fun notifId(id: Long) = 1000 + id.toInt()
 
-        /** UI engines subscribe to save results (NativeBridge forwards to Dart). */
-        val listeners = CopyOnWriteArraySet<(Map<String, Any?>) -> Unit>()
-
-        private fun broadcast(event: Map<String, Any?>) {
-            for (l in listeners) l(event)
-        }
-
         /** Makes sure the service is running (it picks up every active job). */
         fun ensureRunning(context: Context) {
-            ContextCompat.startForegroundService(
-                context, Intent(context, DownloadService::class.java).setAction(ACTION_ENSURE),
-            )
+            try {
+                ContextCompat.startForegroundService(
+                    context, Intent(context, DownloadService::class.java).setAction(ACTION_ENSURE),
+                )
+            } catch (e: IllegalStateException) {
+                // Android 12+: no foreground service starts from the background.
+                // The next time the app is opened the queue starts it again.
+                Log.w(TAG, "service: cannot start from background: ${e.message}")
+            }
         }
-
-        /** A job was queued, resumed or finished from the UI. */
-        fun track(context: Context, id: Long, title: String) = ensureRunning(context)
     }
 }

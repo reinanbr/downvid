@@ -28,6 +28,8 @@ type Request struct {
 	TmpDir   string       `json:"tmpDir"`
 	// ChunkSize caps each Range request (yt-dlp http_chunk_size).
 	ChunkSize int64 `json:"chunkSize,omitempty"`
+	// Connections overrides the parallel connection setting (0 = global).
+	Connections int `json:"connections,omitempty"`
 	// FFmpeg is used by "merge" (separate video/audio or non-MP4 containers)
 	// and "audio".
 	FFmpeg media.FFmpeg `json:"ffmpeg"`
@@ -84,7 +86,7 @@ func run(ctx context.Context, id int64, req Request, emit func(Event)) (hls.Resu
 	tickerDone := make(chan struct{})
 	go func() {
 		defer close(tickerDone)
-		t := time.NewTicker(400 * time.Millisecond)
+		t := time.NewTicker(500 * time.Millisecond)
 		defer t.Stop()
 		var lastBytes int64
 		lastT := time.Now()
@@ -127,7 +129,7 @@ func run(ctx context.Context, id int64, req Request, emit func(Event)) (hls.Resu
 	case "mp4", "image":
 		var n int64
 		n, err = netx.DownloadFileOpts(ctx, req.URL, req.Headers, req.OutPath, &bytes, total.Store,
-			netx.Options{ChunkSize: req.ChunkSize, Resume: true})
+			netx.Options{ChunkSize: req.ChunkSize, Resume: true, Connections: req.Connections})
 		res = hls.Result{Path: req.OutPath, Size: n}
 	case "merge":
 		res, err = runMerge(ctx, req, &bytes, &total, func(p string) { phase.Store(p) })
@@ -141,7 +143,7 @@ func run(ctx context.Context, id int64, req Request, emit func(Event)) (hls.Resu
 		}
 		res, err = hls.Download(ctx, hls.Request{
 			PlaylistURL: req.URL, AudioURL: req.AudioURL, Headers: req.Headers,
-			OutPath: req.OutPath, TmpDir: tmp, FFmpeg: req.FFmpeg,
+			OutPath: req.OutPath, TmpDir: tmp, FFmpeg: req.FFmpeg, Connections: req.Connections,
 		}, func(p hls.Progress) {
 			bytes.Store(p.Bytes)
 			total.Store(p.EstimatedTotal)
@@ -214,7 +216,7 @@ func runMerge(ctx context.Context, req Request, bytes *netx.Counter, total *atom
 				if t := sizes[0].Load(); t > 0 && (len(urls) == 1 || sizes[1].Load() > 0) {
 					total.Store(t + sizes[1].Load())
 				}
-			}, netx.Options{ChunkSize: req.ChunkSize, Resume: true})
+			}, netx.Options{ChunkSize: req.ChunkSize, Resume: true, Connections: req.Connections, KeepDone: true})
 		}()
 	}
 	wg.Wait()
@@ -279,7 +281,7 @@ func runAudio(ctx context.Context, req Request, bytes *netx.Counter, total *atom
 	if !req.SourceHLS {
 		input = filepath.Join(tmp, "src")
 		if _, err := netx.DownloadFileOpts(ctx, req.URL, req.Headers, input, bytes, total.Store,
-			netx.Options{ChunkSize: req.ChunkSize, Resume: true}); err != nil {
+			netx.Options{ChunkSize: req.ChunkSize, Resume: true, Connections: req.Connections, KeepDone: true}); err != nil {
 			return hls.Result{}, err
 		}
 	}

@@ -95,32 +95,35 @@ object YtDlp {
 
     data class InfoResult(val json: String, val stderr: String, val exitCode: Int, val elapsedMs: Long)
 
-    /** Runs `yt-dlp -J` (blocking; call off the main thread). */
-    fun info(url: String, processId: String): InfoResult {
-        takePrefetched(url)?.let {
+    /**
+     * Runs `yt-dlp -J` (blocking; call off the main thread). [headers]: the
+     * page's session in the in-app browser (Cookie, Referer).
+     */
+    fun info(url: String, processId: String, headers: Map<String, String> = emptyMap()): InfoResult {
+        if (headers.isEmpty()) takePrefetched(url)?.let {
             val r = it.get()
             Log.i(TAG, "ytdlp: using prefetched result for $url")
             return r
         }
-        return runInfo(url, processId)
+        return runInfo(url, processId, headers)
     }
 
-    private fun runInfo(url: String, processId: String): InfoResult {
+    private fun runInfo(url: String, processId: String, headers: Map<String, String> = emptyMap()): InfoResult {
         awaitInit()
         val cacheDir = File(appContext.cacheDir, "yt-dlp").absolutePath
         try {
-            val r = server.info(url, cacheDir, quickJs())
+            val r = server.info(url, cacheDir, quickJs(), headers = headers)
             Log.i(TAG, "ytdlp: -J (server) exit=${r.exitCode} in ${r.elapsedMs}ms (${r.json.length} chars) $url")
             if (r.stderr.isNotBlank()) Log.d(TAG, "ytdlp stderr: ${r.stderr.take(1500)}")
             return r
         } catch (e: Exception) {
             Log.w(TAG, "ytdlp: server unavailable (${e.message}); running yt-dlp directly")
         }
-        return runInfoProcess(url, processId)
+        return runInfoProcess(url, processId, headers)
     }
 
     /** One-shot `yt-dlp -J` process (fallback; pays Python startup each time). */
-    private fun runInfoProcess(url: String, processId: String): InfoResult {
+    private fun runInfoProcess(url: String, processId: String, headers: Map<String, String>): InfoResult {
         val req = YoutubeDLRequest(url).apply {
             addOption("-J")
             addOption("--no-playlist")
@@ -133,6 +136,7 @@ object YtDlp {
             // YouTube's JS challenges: use the QuickJS shipped with the library
             // (yt-dlp vendors the solver script; it only needs a runtime).
             quickJs()?.let { addOption("--js-runtimes", "quickjs:$it") }
+            for ((k, v) in headers) addOption("--add-header", "$k:$v")
         }
         val t0 = System.currentTimeMillis()
         return try {

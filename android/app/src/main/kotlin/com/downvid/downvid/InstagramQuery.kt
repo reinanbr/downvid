@@ -254,7 +254,7 @@ class InstagramQuery(private val activity: Activity) {
             })();
         """.trimIndent()
 
-        private fun desktopUserAgent(mobile: String): String {
+        fun desktopUserAgent(mobile: String): String {
             val chrome = Regex("""Chrome/([\d.]+)""").find(mobile)?.groupValues?.get(1) ?: "140.0.0.0"
             return "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/$chrome Safari/537.36"
         }

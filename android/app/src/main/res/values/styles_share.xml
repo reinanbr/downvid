@@ -1,8 +1,12 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <!-- Translucent window for ShareActivity: the calling app stays visible
-         behind the Flutter bottom sheet. -->
-    <style name="ShareTheme" parent="@android:style/Theme.Translucent.NoTitleBar">
+         behind the download sheet. Based on Theme.Material (not the legacy
+         Theme.Translucent) so the window draws behind the system bars: the
+         legacy theme left an opaque black status bar above the sheet. -->
+    <style name="ShareTheme" parent="@android:style/Theme.Material.Light.NoActionBar">
+        <item name="android:windowDrawsSystemBarBackgrounds">true</item>
+        <item name="android:windowContentOverlay">@null</item>
         <item name="android:windowBackground">@android:color/transparent</item>
         <item name="android:windowIsTranslucent">true</item>
         <item name="android:windowNoTitle">true</item>

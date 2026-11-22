@@ -3,6 +3,7 @@
 //	go run ./cmd/dvcli probe <page-url>
 //	go run ./cmd/dvcli get <page-url> [option-index] [out.mp4]
 //	go run ./cmd/dvcli ytdlp <url> [option-index] [out.mp4]   (needs yt-dlp + ffmpeg; DV_YTDLP=path)
+//	go run ./cmd/dvcli bench <file-or-m3u8-url> [runs] [conns] (download speed, no queue)
 package main
 
 import (
@@ -30,6 +31,10 @@ func main() {
 	}
 	if os.Args[1] == "ytdlp" || os.Args[1] == "audio" {
 		runYtdlp(os.Args[1], os.Args[2:])
+		return
+	}
+	if os.Args[1] == "bench" {
+		runBench(os.Args[2:])
 		return
 	}
 	res, err := scan.Probe(context.Background(), scan.Request{PageURL: os.Args[2]})

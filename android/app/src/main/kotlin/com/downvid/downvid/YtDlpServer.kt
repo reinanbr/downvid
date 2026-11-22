@@ -95,7 +95,14 @@ class YtDlpServer(private val context: Context) {
     }
 
     /** Extracts `url`; throws if the server is unavailable (caller falls back). */
-    fun info(url: String, cacheDir: String, qjs: String?, flat: Boolean = false, timeoutSec: Long = 120): YtDlp.InfoResult {
+    fun info(
+        url: String,
+        cacheDir: String,
+        qjs: String?,
+        flat: Boolean = false,
+        timeoutSec: Long = 120,
+        headers: Map<String, String> = emptyMap(),
+    ): YtDlp.InfoResult {
         start()
         ready.get(30, TimeUnit.SECONDS)
         main.removeCallbacks(idleStop)
@@ -104,6 +111,7 @@ class YtDlpServer(private val context: Context) {
         pending[id] = f
         val req = JSONObject().put("id", id).put("url", url).put("cacheDir", cacheDir)
         if (qjs != null) req.put("qjs", qjs)
+        if (headers.isNotEmpty()) req.put("headers", JSONObject(headers))
         if (flat) req.put("flat", true).put("playlistEnd", 6)
         synchronized(this) {
             stdin!!.apply { write(req.toString()); newLine(); flush() }

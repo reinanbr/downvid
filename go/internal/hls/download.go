@@ -8,7 +8,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"net/http"
 	"os"
 	"path/filepath"
 	"sort"
@@ -21,8 +20,6 @@ import (
 	"github.com/downvid/core/internal/netx"
 )
 
-const segmentWorkers = 6
-
 // Request describes an HLS download.
 type Request struct {
 	PlaylistURL string // media playlist, or master (best variant is chosen)
@@ -33,6 +30,9 @@ type Request struct {
 	// FFmpeg, when available, assembles the MP4 (robust with every HLS
 	// flavor); the pure-Go remux is the fallback.
 	FFmpeg media.FFmpeg
+	// Connections is the number of segments fetched in parallel
+	// (0 = netx.Connections()).
+	Connections int
 }
 
 // Progress is reported while segments download.
@@ -156,7 +156,7 @@ func download(ctx context.Context, req Request, progress func(Progress)) (Result
 	logx.Infof("hls: %d video segments (%.0fs), %d audio segments, out=%s",
 		len(video.Segments), video.TotalDuration, len(audioJobs), req.OutPath)
 
-	if err := fetchAll(ctx, jobs, req.Headers, progress); err != nil {
+	if err := fetchAll(ctx, jobs, req.Headers, req.Connections, progress); err != nil {
 		return Result{}, err
 	}
 
@@ -186,7 +186,7 @@ func paths(js []segJob) []string {
 	return out
 }
 
-func fetchAll(ctx context.Context, jobs []segJob, h netx.Headers, progress func(Progress)) error {
+func fetchAll(ctx context.Context, jobs []segJob, h netx.Headers, conns int, progress func(Progress)) error {
 	ctx, cancel := context.WithCancelCause(ctx)
 	defer cancel(nil)
 
@@ -195,7 +195,13 @@ func fetchAll(ctx context.Context, jobs []segJob, h netx.Headers, progress func(
 	var bytes atomic.Int64
 	ch := make(chan segJob)
 	var wg sync.WaitGroup
-	for range segmentWorkers {
+	// One HTTP/1.1 connection per worker (netx.MediaClient; HTTP/2 for hosts
+	// that refuse HTTP/1.1).
+	if conns <= 0 {
+		conns = netx.Connections()
+	}
+	workers := max(1, min(conns, len(jobs)))
+	for range workers {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
@@ -275,12 +281,7 @@ func fetchRange(ctx context.Context, u string, r *ByteRange, h netx.Headers) ([]
 	if r != nil {
 		extra = map[string]string{"Range": fmt.Sprintf("bytes=%d-%d", r.Offset, r.Offset+r.Length-1)}
 	}
-	resp, err := netx.Do(ctx, http.MethodGet, u, h, extra)
-	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
-	return io.ReadAll(resp.Body)
+	return netx.GetMedia(ctx, u, h, extra)
 }
 
 type keyCache struct {
@@ -406,32 +407,54 @@ func assemble(ctx context.Context, req Request, video, audio *Playlist, vFiles, 
 	return res, nil
 }
 
-// assembleFFmpeg joins each rendition into one file (TS/ADTS segments are
-// concatenable as is; fMP4 needs its init section first) and lets ffmpeg copy
-// the streams into an MP4. ffmpeg handles what the Go remux does not: signed
-// composition offsets (X/Twitter), edit lists, timestamp discontinuities.
+// assembleFFmpeg lets ffmpeg copy the streams into an MP4. ffmpeg handles
+// what the Go remux does not: signed composition offsets (X/Twitter), edit
+// lists, timestamp discontinuities. Each rendition (init section first for
+// fMP4; TS/ADTS segments are concatenable as is) is written straight into a
+// pipe, which saves writing and reading the whole video once more; if that
+// fails, the renditions are joined into files first.
 func assembleFFmpeg(ctx context.Context, req Request, video, audio *Playlist, vFiles, aFiles []string,
 	vFmt, aFmt media.SegmentFormat) (Result, error) {
-	join := func(pl *Playlist, files []string, f media.SegmentFormat, name string) (string, error) {
-		out := filepath.Join(req.TmpDir, name)
-		if f == media.FormatFMP4 {
-			return out, concatRendition(ctx, req, pl, files, out)
+	initOf := func(pl *Playlist, f media.SegmentFormat) ([]byte, error) {
+		if f != media.FormatFMP4 || pl.Segments[0].Map == nil {
+			return nil, nil
 		}
-		return out, media.ConcatFMP4(out, nil, files) // plain byte concatenation
+		m := pl.Segments[0].Map
+		b, err := fetchRange(ctx, m.URL, m.Range, req.Headers)
+		if err != nil {
+			return nil, fmt.Errorf("init segment: %w", err)
+		}
+		return b, nil
 	}
-	v, err := join(video, vFiles, vFmt, "video.join")
+	vInit, err := initOf(video, vFmt)
 	if err != nil {
 		return Result{}, err
 	}
-	inputs := []string{v}
+	var aInit []byte
 	if len(aFiles) > 0 {
-		a, err := join(audio, aFiles, aFmt, "audio.join")
-		if err != nil {
+		if aInit, err = initOf(audio, aFmt); err != nil {
 			return Result{}, err
 		}
-		inputs = append(inputs, a)
 	}
-	if err := req.FFmpeg.CopyToMP4(ctx, inputs, req.OutPath); err != nil {
+	inputs := []media.StreamInput{streamRendition(vInit, vFiles)}
+	if len(aFiles) > 0 {
+		inputs = append(inputs, streamRendition(aInit, aFiles))
+	}
+	err = req.FFmpeg.CopyStreamsToMP4(ctx, inputs, req.OutPath)
+	if err != nil && ctx.Err() == nil {
+		logx.Warnf("hls: piped ffmpeg assembly failed (%v); joining files first", err)
+		v := filepath.Join(req.TmpDir, "video.join")
+		files := []string{v}
+		if err = media.ConcatFMP4(v, vInit, vFiles); err == nil && len(aFiles) > 0 {
+			a := filepath.Join(req.TmpDir, "audio.join")
+			files = append(files, a)
+			err = media.ConcatFMP4(a, aInit, aFiles)
+		}
+		if err == nil {
+			err = req.FFmpeg.CopyToMP4(ctx, files, req.OutPath)
+		}
+	}
+	if err != nil {
 		return Result{}, err
 	}
 	fi, err := os.Stat(req.OutPath)
@@ -440,6 +463,27 @@ func assembleFFmpeg(ctx context.Context, req Request, video, audio *Playlist, vF
 	}
 	logx.Infof("hls: ffmpeg assembly ok (%d inputs, %d bytes)", len(inputs), fi.Size())
 	return Result{Path: req.OutPath, Size: fi.Size(), DurationMs: uint64(video.TotalDuration * 1000)}, nil
+}
+
+// streamRendition writes init (if any) and the segment files in order.
+func streamRendition(init []byte, files []string) media.StreamInput {
+	return func(w io.Writer) error {
+		if _, err := w.Write(init); err != nil {
+			return err
+		}
+		for _, p := range files {
+			f, err := os.Open(p)
+			if err != nil {
+				return err
+			}
+			_, err = io.Copy(w, f)
+			f.Close()
+			if err != nil {
+				return err
+			}
+		}
+		return nil
+	}
 }
 
 func concatRendition(ctx context.Context, req Request, pl *Playlist, files []string, out string) error {

@@ -44,8 +44,9 @@ app.*.map.json
 /android/app/profile
 /android/app/release
 
-# Go core build outputs (scripts/build_go.sh)
+# Native build outputs (scripts/build_go.sh, scripts/build_rust.sh)
 /android/app/src/main/jniLibs/
+/adblock/target/
 
 # device logs
 /logs/

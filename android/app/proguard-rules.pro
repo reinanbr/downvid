@@ -1,6 +1,6 @@
 # JNI entry points implemented in Go (go/dvcore/jni_android.go): the native
 # method names are part of the ABI and must not be renamed.
--keepclasseswithmembernames class com.downvid.downvid.DvCore {
+-keepclasseswithmembernames class com.downvid.downvid.core.DvCore {
     native <methods>;
 }
 
@@ -17,3 +17,13 @@
 -keep class org.apache.commons.** { *; }
 -dontwarn org.apache.commons.**
 -dontwarn java.beans.**
+
+# kotlinx.serialization: keep generated serializers of @Serializable classes.
+-keepattributes *Annotation*, InnerClasses
+-keepclassmembers @kotlinx.serialization.Serializable class com.downvid.downvid.** {
+    *** Companion;
+    kotlinx.serialization.KSerializer serializer(...);
+}
+-keepclasseswithmembers class com.downvid.downvid.** {
+    kotlinx.serialization.KSerializer serializer(...);
+}

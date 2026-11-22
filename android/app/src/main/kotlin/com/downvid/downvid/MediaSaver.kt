@@ -12,6 +12,8 @@ import android.os.Environment
 import android.provider.MediaStore
 import android.util.Log
 import androidx.core.content.FileProvider
+import com.downvid.downvid.player.PlayItem
+import com.downvid.downvid.player.PlayerHub
 import java.io.File
 
 /**
@@ -113,12 +115,44 @@ object MediaSaver {
         return Saved(uri, target.name, "${kind.dir}/$FOLDER", kind.mime)
     }
 
-    fun open(context: Context, uri: Uri, mime: String) {
+    /**
+     * MIME type of a saved file: [mime] when known, else MediaStore's (jobs
+     * saved before 0.2.0 may have none), else from the name.
+     */
+    fun typeOf(context: Context, uri: Uri, mime: String?): String =
+        mime?.takeIf { it.isNotEmpty() }
+            ?: runCatching { context.contentResolver.getType(uri) }.getOrNull()
+            ?: when (uri.lastPathSegment?.substringAfterLast('.', "")?.lowercase()) {
+                "m4a" -> "audio/mp4"
+                "mp3" -> "audio/mpeg"
+                "jpg", "jpeg" -> "image/jpeg"
+                else -> "video/mp4"
+            }
+
+    /** Videos and music play in DownVid's player; photos open in the gallery. */
+    fun open(context: Context, uri: Uri, mime: String?, title: String? = null) {
+        val type = typeOf(context, uri, mime)
+        if (type.startsWith("video/") || type.startsWith("audio/")) {
+            PlayerHub.open(context, PlayItem(url = uri.toString(), title = title))
+        } else {
+            openWith(context, uri, type)
+        }
+    }
+
+    /** "Open with…": the system's chooser. */
+    fun openWith(context: Context, uri: Uri, mime: String?) {
         val intent = Intent(Intent.ACTION_VIEW).apply {
-            setDataAndType(uri, mime)
+            setDataAndType(uri, typeOf(context, uri, mime))
             addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_ACTIVITY_NEW_TASK)
         }
         context.startActivity(Intent.createChooser(intent, null).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+    }
+
+    fun share(context: Context, uri: Uri, mime: String?) {
+        val send = Intent(Intent.ACTION_SEND).setType(typeOf(context, uri, mime))
+            .putExtra(Intent.EXTRA_STREAM, uri)
+            .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        context.startActivity(Intent.createChooser(send, null).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
     }
 
     /**
