@@ -146,6 +146,72 @@ func TestQueuePauseResumeCancelPersist(t *testing.T) {
 	}
 }
 
+// A failed save must take the job out of "done" (the service retried it
+// forever), survive a restart, and Resume must retry the save without
+// downloading again — or download again when the file is gone.
+func TestSaveFailedRetry(t *testing.T) {
+	dir := reset(t)
+	if _, err := Init(dir, media.FFmpeg{}, 1); err != nil {
+		t.Fatal(err)
+	}
+	data := make([]byte, 64<<10)
+	rand.Read(data)
+	var served atomic.Int64
+	srv := slowServer(data, &served)
+	defer srv.Close()
+
+	out := filepath.Join(dir, "v.mp4")
+	id, _ := Start(Request{Kind: "mp4", URL: srv.URL, OutPath: out}, Meta{Title: "V"}, nil)
+	waitState(t, id, StateDone, 5*time.Second)
+	if MarkSaveFailed(id+100, "x") {
+		t.Error("MarkSaveFailed of an unknown job reported success")
+	}
+	if !MarkSaveFailed(id, "Invalid surrogate in string") {
+		t.Fatal("MarkSaveFailed refused a done job")
+	}
+	s := waitState(t, id, StateError, time.Second)
+	if !s.SaveFailed || s.Path != out || s.Message != "Could not save to the gallery: Invalid surrogate in string" {
+		t.Errorf("after save failure: %+v", s)
+	}
+	if MarkSaveFailed(id, "again") {
+		t.Error("MarkSaveFailed changed a job that is not done")
+	}
+
+	// Restart: the failure and the file path are persisted.
+	save()
+	mu.Lock()
+	jobs, nextID = map[int64]*job{}, 0
+	mu.Unlock()
+	if st, _ := Init(dir, media.FFmpeg{}, 1); len(st) != 1 || st[0].State != StateError || !st[0].SaveFailed {
+		t.Fatalf("reloaded = %+v", st)
+	}
+
+	// Retry with the file present: back to done, nothing downloaded.
+	before := served.Load()
+	if !Resume(id) {
+		t.Fatal("Resume refused a save-failed job")
+	}
+	if s := waitState(t, id, StateDone, time.Second); s.SaveFailed || s.Path != out || s.Message != "" {
+		t.Errorf("after retry: %+v", s)
+	}
+	if served.Load() != before {
+		t.Errorf("retrying the save downloaded %d bytes", served.Load()-before)
+	}
+
+	// Retry with the file gone: downloaded again.
+	MarkSaveFailed(id, "boom")
+	os.Remove(out)
+	Resume(id)
+	waitState(t, id, StateDone, 5*time.Second)
+	if got, _ := os.ReadFile(out); !bytes.Equal(got, data) {
+		t.Error("re-downloaded file differs")
+	}
+	MarkSaved(id, Saved{URI: "content://x/2"})
+	if s := waitState(t, id, StateSaved, time.Second); s.SaveFailed {
+		t.Errorf("saved job still flagged: %+v", s)
+	}
+}
+
 func TestExpiredAndNetworkStates(t *testing.T) {
 	reset(t)
 	gone := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

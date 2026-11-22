@@ -58,6 +58,9 @@ def handle(req):
         "nocheckcertificate": True,
         "cachedir": req.get("cacheDir") or False,
     }
+    if req.get("headers"):
+        # The in-app browser's session (cookies, referer) for the page.
+        opts["http_headers"] = dict(req["headers"])
     if req.get("qjs"):
         opts["js_runtimes"] = {"quickjs": {"path": req["qjs"]}}
     if req.get("flat"):

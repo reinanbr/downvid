@@ -6,6 +6,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"strconv"
@@ -36,6 +37,10 @@ func (f FFmpeg) CopyToMP4(ctx context.Context, inputs []string, out string) erro
 	if !f.Available() {
 		return errors.New("ffmpeg unavailable")
 	}
+	return f.run(ctx, copyArgs(inputs, out))
+}
+
+func copyArgs(inputs []string, out string) []string {
 	args := []string{"-hide_banner", "-nostdin", "-loglevel", "error", "-y"}
 	for _, in := range inputs {
 		args = append(args, "-i", in)
@@ -45,8 +50,86 @@ func (f FFmpeg) CopyToMP4(ctx context.Context, inputs []string, out string) erro
 	} else {
 		args = append(args, "-map", "0:v:0?", "-map", "0:a:0?")
 	}
-	args = append(args, "-c", "copy", "-movflags", "+faststart", "-f", "mp4", out)
-	return f.run(ctx, args)
+	return append(args, "-c", "copy", "-movflags", "+faststart", "-f", "mp4", out)
+}
+
+// StreamInput writes one whole input stream for ffmpeg (into a pipe).
+type StreamInput func(w io.Writer) error
+
+// CopyStreamsToMP4 is CopyToMP4 with inputs that Go writes into pipes
+// (ffmpeg reads them as pipe:3, pipe:4…), so the streams never have to be
+// joined into intermediate files first.
+func (f FFmpeg) CopyStreamsToMP4(ctx context.Context, inputs []StreamInput, out string) error {
+	if !f.Available() {
+		return errors.New("ffmpeg unavailable")
+	}
+	names := make([]string, len(inputs))
+	for i := range inputs {
+		names[i] = fmt.Sprintf("pipe:%d", 3+i)
+	}
+	args := copyArgs(names, out)
+	cmd := exec.CommandContext(ctx, f.Path, args...)
+	cmd.Env = os.Environ()
+	if f.LibraryPath != "" {
+		cmd.Env = append(cmd.Env, "LD_LIBRARY_PATH="+f.LibraryPath)
+	}
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+	writers := make([]*os.File, len(inputs))
+	closeAll := func(fs []*os.File) {
+		for _, x := range fs {
+			if x != nil {
+				x.Close()
+			}
+		}
+	}
+	for i := range inputs {
+		r, w, err := os.Pipe()
+		if err != nil {
+			closeAll(cmd.ExtraFiles)
+			closeAll(writers)
+			return err
+		}
+		cmd.ExtraFiles = append(cmd.ExtraFiles, r)
+		writers[i] = w
+	}
+	logx.Infof("ffmpeg %s", strings.Join(args, " "))
+	err := cmd.Start()
+	closeAll(cmd.ExtraFiles) // the child has its copies
+	if err != nil {
+		closeAll(writers)
+		return err
+	}
+	errs := make(chan error, len(inputs))
+	for i, in := range inputs {
+		go func() {
+			err := in(writers[i])
+			writers[i].Close() // EOF for ffmpeg
+			errs <- err
+		}()
+	}
+	waitErr := cmd.Wait()
+	var inErr error
+	for range inputs {
+		if e := <-errs; e != nil && inErr == nil {
+			inErr = e
+		}
+	}
+	if waitErr != nil {
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
+		msg := strings.TrimSpace(stderr.String())
+		if len(msg) > 500 {
+			msg = msg[len(msg)-500:]
+		}
+		logx.Errorf("ffmpeg failed: %v: %s", waitErr, msg)
+		return fmt.Errorf("ffmpeg: %v: %s", waitErr, msg)
+	}
+	if inErr != nil {
+		return fmt.Errorf("ffmpeg input: %w", inErr)
+	}
+	return nil
 }
 
 func (f FFmpeg) run(ctx context.Context, args []string) error {

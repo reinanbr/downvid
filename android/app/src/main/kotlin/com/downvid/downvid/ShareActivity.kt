@@ -1,34 +1,57 @@
 package com.downvid.downvid
 
+import android.content.ClipboardManager
 import android.content.Intent
 import android.os.Bundle
-import io.flutter.embedding.android.FlutterActivity
-import io.flutter.embedding.android.FlutterActivityLaunchConfigs.BackgroundMode
-import io.flutter.embedding.engine.FlutterEngine
-import io.flutter.plugin.common.MethodChannel
+import android.util.Log
+import androidx.activity.ComponentActivity
+import androidx.activity.compose.setContent
+import androidx.activity.enableEdgeToEdge
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.downvid.downvid.core.JobController
+import com.downvid.downvid.core.Settings
+import com.downvid.downvid.ui.DisclaimerDialog
+import com.downvid.downvid.ui.DownVidTheme
+import kotlinx.coroutines.flow.MutableStateFlow
 
 /**
- * Share target (ACTION_SEND text/plain). Runs the `shareMain` Dart entrypoint
- * in a transparent window so only the bottom sheet is shown on top of the
- * app that shared the link.
+ * Share target (ACTION_SEND text/plain) and the "Paste & download" tile.
+ * A translucent window shows only the download sheet over the app the link
+ * was shared from. A new share while the sheet is open replaces it; a running
+ * download is never canceled, it continues in DownloadService.
  */
-class ShareActivity : FlutterActivity() {
-    private var channel: MethodChannel? = null
-    private var bridge: NativeBridge? = null
-    private var sharedText: String? = null
+class ShareActivity : ComponentActivity() {
+    private data class Shared(val seq: Int, val text: String?)
 
-    // "Paste & download" (Quick Settings tile): the clipboard can only be read
-    // once this window has focus (Android 10+), so the text request waits.
+    private val shared = MutableStateFlow<Shared?>(null)
+    private var seq = 0
+
+    // Paste mode: the clipboard can only be read once this window has focus
+    // (Android 10+), so the text waits for it.
     private var pasteMode = false
-    private val pendingText = ArrayList<MethodChannel.Result>()
 
     override fun onCreate(savedInstanceState: Bundle?) {
-        pasteMode = intent?.action == ACTION_PASTE
-        if (!pasteMode) {
-            sharedText = extractText(intent)
-            prefetch(sharedText)
-        }
+        enableEdgeToEdge()
         super.onCreate(savedInstanceState)
+        JobController.start(this)
+        pasteMode = intent?.action == ACTION_PASTE
+        if (!pasteMode) post(extractText(intent))
+        setContent {
+            DownVidTheme {
+                val s by shared.collectAsStateWithLifecycle()
+                var disclaimer by remember { mutableStateOf(!Settings.current.disclaimerAccepted) }
+                if (disclaimer) {
+                    DisclaimerDialog { disclaimer = false }
+                } else {
+                    s?.let { cur -> key(cur.seq) { LinkSheet(cur.text.orEmpty(), ::finish) } }
+                }
+            }
+        }
     }
 
     override fun onWindowFocusChanged(hasFocus: Boolean) {
@@ -38,19 +61,19 @@ class ShareActivity : FlutterActivity() {
 
     private fun readClipboard() {
         pasteMode = false
-        val cm = getSystemService(android.content.ClipboardManager::class.java)
-        sharedText = cm?.primaryClip?.takeIf { it.itemCount > 0 }?.getItemAt(0)?.coerceToText(this)?.toString() ?: ""
-        android.util.Log.i("DownVid", "paste: clipboard has ${sharedText!!.length} chars")
-        prefetch(sharedText)
-        if (pendingText.isEmpty()) {
-            channel?.invokeMethod("onSharedText", sharedText)
-        } else {
-            pendingText.forEach { it.success(sharedText) }
-            pendingText.clear()
-        }
+        val cm = getSystemService(ClipboardManager::class.java)
+        val text = cm?.primaryClip?.takeIf { it.itemCount > 0 }?.getItemAt(0)?.coerceToText(this)?.toString().orEmpty()
+        Log.i(TAG, "paste: clipboard has ${text.length} chars")
+        post(text)
     }
 
-    /** Starts yt-dlp before the Flutter engine is up (saves ~1 s). */
+    private fun post(text: String?) {
+        prefetch(text)
+        Log.i(TAG, "share: sheet for ${text?.replace('\n', ' ')}")
+        shared.value = Shared(++seq, text)
+    }
+
+    /** Starts yt-dlp while the sheet is still being drawn (saves ~1 s). */
     private fun prefetch(text: String?) {
         val url = text?.let { URL_RE.find(it)?.value?.trimEnd(*TRAILING) } ?: return
         YtDlp.warmUp(this)
@@ -58,27 +81,6 @@ class ShareActivity : FlutterActivity() {
         // yt-dlp is only a fallback there, so don't spend it up front.
         if (INSTAGRAM_POST_RE.containsMatchIn(url)) return
         YtDlp.prefetch(url)
-    }
-
-    override fun getDartEntrypointFunctionName(): String = "shareMain"
-
-    override fun getBackgroundMode(): BackgroundMode = BackgroundMode.transparent
-
-    override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
-        super.configureFlutterEngine(flutterEngine)
-        bridge = NativeBridge(this, flutterEngine)
-        channel = MethodChannel(flutterEngine.dartExecutor.binaryMessenger, CHANNEL).apply {
-            setMethodCallHandler { call, result ->
-                when (call.method) {
-                    "getSharedText" -> if (pasteMode) pendingText += result else result.success(sharedText)
-                    "close" -> {
-                        result.success(null)
-                        finish()
-                    }
-                    else -> result.notImplemented()
-                }
-            }
-        }
     }
 
     // launchMode="singleTask": a second share while the sheet is open lands here.
@@ -90,19 +92,12 @@ class ShareActivity : FlutterActivity() {
             if (hasWindowFocus()) readClipboard()
             return
         }
-        sharedText = extractText(intent)
-        prefetch(sharedText)
-        channel?.invokeMethod("onSharedText", sharedText)
-    }
-
-    override fun onDestroy() {
-        bridge?.dispose()
-        bridge = null
-        super.onDestroy()
+        post(extractText(intent))
     }
 
     override fun finish() {
         super.finish()
+        @Suppress("DEPRECATION")
         overridePendingTransition(0, 0)
     }
 
@@ -115,11 +110,10 @@ class ShareActivity : FlutterActivity() {
     }
 
     companion object {
-        private const val CHANNEL = "downvid/share"
+        private const val TAG = "DownVid"
         const val ACTION_PASTE = "com.downvid.downvid.PASTE"
 
-        // Same rule as lib/core/url/link_parser.dart (first http(s) URL,
-        // trailing punctuation trimmed), so both sides agree on the key.
+        // Same rule as LinkParser (first http(s) URL, trailing punctuation trimmed).
         private val URL_RE = Regex("""https?://[^\s<>"']+""", RegexOption.IGNORE_CASE)
         private val INSTAGRAM_POST_RE = Regex("""instagram\.com/(?:(?:[\w.]+/)?(?:p|reel|reels|tv)|stories)/""")
         private val TRAILING = charArrayOf(')', '.', ',', ';', ':', '!', '?', ']', '}', '>')

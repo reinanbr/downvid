@@ -1,4 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
+    <string name="app_name">DownVid</string>
+    <string name="share_label">Download with DownVid</string>
     <string name="tile_paste_label">Paste &amp; download</string>
 </resources>

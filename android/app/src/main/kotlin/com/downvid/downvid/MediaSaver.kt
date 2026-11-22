@@ -12,6 +12,8 @@ import android.os.Environment
 import android.provider.MediaStore
 import android.util.Log
 import androidx.core.content.FileProvider
+import com.downvid.downvid.player.PlayItem
+import com.downvid.downvid.player.PlayerHub
 import java.io.File
 
 /**
@@ -113,18 +115,80 @@ object MediaSaver {
         return Saved(uri, target.name, "${kind.dir}/$FOLDER", kind.mime)
     }
 
-    fun open(context: Context, uri: Uri, mime: String) {
+    /**
+     * MIME type of a saved file: [mime] when known, else MediaStore's (jobs
+     * saved before 0.2.0 may have none), else from the name.
+     */
+    fun typeOf(context: Context, uri: Uri, mime: String?): String =
+        mime?.takeIf { it.isNotEmpty() }
+            ?: runCatching { context.contentResolver.getType(uri) }.getOrNull()
+            ?: when (uri.lastPathSegment?.substringAfterLast('.', "")?.lowercase()) {
+                "m4a" -> "audio/mp4"
+                "mp3" -> "audio/mpeg"
+                "jpg", "jpeg" -> "image/jpeg"
+                else -> "video/mp4"
+            }
+
+    /** Videos and music play in DownVid's player; photos open in the gallery. */
+    fun open(context: Context, uri: Uri, mime: String?, title: String? = null) {
+        val type = typeOf(context, uri, mime)
+        if (type.startsWith("video/") || type.startsWith("audio/")) {
+            PlayerHub.open(context, PlayItem(url = uri.toString(), title = title))
+        } else {
+            openWith(context, uri, type)
+        }
+    }
+
+    /** "Open with…": the system's chooser. */
+    fun openWith(context: Context, uri: Uri, mime: String?) {
         val intent = Intent(Intent.ACTION_VIEW).apply {
-            setDataAndType(uri, mime)
+            setDataAndType(uri, typeOf(context, uri, mime))
             addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_ACTIVITY_NEW_TASK)
         }
         context.startActivity(Intent.createChooser(intent, null).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
     }
 
-    private fun sanitize(s: String): String =
-        s.replace(Regex("""[\\/:*?"<>|\u0000-\u001f]"""), " ")
+    fun share(context: Context, uri: Uri, mime: String?) {
+        val send = Intent(Intent.ACTION_SEND).setType(typeOf(context, uri, mime))
+            .putExtra(Intent.EXTRA_STREAM, uri)
+            .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        context.startActivity(Intent.createChooser(send, null).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+    }
+
+    /**
+     * File-system-safe base name. Truncated by code point, never inside a
+     * surrogate pair: `take(80)` on the UTF-16 string used to split emoji
+     * ("…👉🏻👉" + half of the next one) and MediaStore rejects such names
+     * ("Invalid surrogate in string"), so the file was never saved. Also
+     * bounded in UTF-8 bytes: the name gets a ".pending-<time>-" prefix and
+     * maybe " (1)" while staying under the 255-byte file name limit.
+     */
+    internal fun sanitize(s: String): String {
+        val cleaned = s.replace(Regex("""[\\/:*?"<>|\u0000-\u001f\u007f]"""), " ")
             .replace(Regex("""\s+"""), " ")
             .trim()
-            .take(80)
-            .trimEnd('.', ' ')
+        val out = StringBuilder()
+        var bytes = 0
+        var count = 0
+        var i = 0
+        while (i < cleaned.length && count < MAX_NAME_CHARS) {
+            val cp = cleaned.codePointAt(i)
+            i += Character.charCount(cp)
+            if (cp in Character.MIN_SURROGATE.code..Character.MAX_SURROGATE.code) continue // unpaired
+            val n = when {
+                cp < 0x80 -> 1
+                cp < 0x800 -> 2
+                cp < 0x10000 -> 3
+                else -> 4
+            }
+            if (bytes + n > MAX_NAME_BYTES) break
+            out.appendCodePoint(cp)
+            bytes += n
+            count++
+        }
+        return out.toString().trimEnd('.', ' ')
+    }
+
+    private const val MAX_NAME_CHARS = 80
+    private const val MAX_NAME_BYTES = 180
 }

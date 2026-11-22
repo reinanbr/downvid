@@ -60,6 +60,9 @@ type Record struct {
 	Created int64   `json:"created"` // unix ms
 	Updated int64   `json:"updated"`
 	Retries int     `json:"retries,omitempty"`
+	// SaveFailed: the file was downloaded but publishing it failed (state
+	// error); Resume retries the save instead of downloading it again.
+	SaveFailed bool `json:"saveFailed,omitempty"`
 }
 
 // Status is a job as seen by the app and the foreground service.
@@ -68,10 +71,11 @@ type Status struct {
 	State string `json:"state"`
 	Meta
 	Event
-	Saved   *Saved `json:"saved,omitempty"`
-	Kind    string `json:"kind"`
-	Created int64  `json:"created"`
-	Updated int64  `json:"updated"`
+	Saved      *Saved `json:"saved,omitempty"`
+	Kind       string `json:"kind"`
+	Created    int64  `json:"created"`
+	Updated    int64  `json:"updated"`
+	SaveFailed bool   `json:"saveFailed,omitempty"`
 }
 
 var (
@@ -90,6 +94,7 @@ type job struct {
 	listener func(Event) // the sheet that started it; nil once detached
 	cancel   context.CancelCauseFunc
 	retry    *time.Timer
+	ver      int64 // version of the last change (changes.go)
 }
 
 var (
@@ -140,6 +145,7 @@ func Init(dir string, ff media.FFmpeg, maxConcurrent int) ([]Status, error) {
 	}
 	startSaver()
 	mu.Unlock()
+	bump()
 	logx.Infof("jobs: loaded %d records from %s, %d to resume", len(recs), dir, resumed)
 	schedule()
 	return Snapshot(), nil
@@ -168,6 +174,7 @@ func Start(req Request, meta Meta, listener func(Event)) (int64, error) {
 		ID: nextID, State: StateQueued, Req: req, Meta: meta, Created: now(), Updated: now(),
 		Last: Event{Type: "progress", Phase: "queued", Total: -1},
 	}}
+	j.changed()
 	jobs[j.rec.ID] = j
 	dirty = true
 	mu.Unlock()
@@ -205,6 +212,7 @@ func schedule() {
 			j.rec.Req.FFmpeg = ffmpeg
 		}
 		j.rec.Updated = now()
+		j.changed()
 		req, id := j.rec.Req, j.rec.ID
 		j.mu.Unlock()
 		dirty = true
@@ -257,6 +265,7 @@ func (j *job) finish(res hls.Result, err error) {
 		ev = Event{Type: "error", Message: err.Error()}
 	}
 	r.Last, r.Updated, j.cancel = ev, now(), nil
+	j.changed()
 	j.deliver(ev)
 	j.mu.Unlock()
 	persist()
@@ -268,6 +277,7 @@ func (j *job) finish(res hls.Result, err error) {
 func (j *job) emit(ev Event) {
 	j.mu.Lock()
 	j.rec.Last = ev
+	j.changed()
 	j.deliver(ev)
 	j.mu.Unlock()
 	mu.Lock()
@@ -304,8 +314,9 @@ func requeue(id int64, from ...string) bool {
 		ok = ok || j.rec.State == f
 	}
 	if ok {
-		j.rec.State, j.rec.Updated = StateQueued, now()
+		j.rec.State, j.rec.Updated, j.rec.SaveFailed = StateQueued, now(), false
 		j.rec.Last.Type, j.rec.Last.Phase, j.rec.Last.Message = "progress", "queued", ""
+		j.changed()
 		if j.retry != nil {
 			j.retry.Stop()
 			j.retry = nil
@@ -342,6 +353,7 @@ func Pause(id int64) bool {
 		}
 		j.rec.State, j.rec.Updated = StatePaused, now()
 		j.rec.Last.Type, j.rec.Last.SpeedBps = "paused", 0
+		j.changed()
 		j.deliver(j.rec.Last)
 		j.mu.Unlock()
 		persist()
@@ -352,12 +364,28 @@ func Pause(id int64) bool {
 }
 
 // Resume restarts a paused/failed job; downloads continue from partial data.
+// A job whose download finished but whose save failed goes back to "done"
+// (the service publishes it again) while its file is still there.
 func Resume(id int64) bool {
-	if j := get(id); j != nil {
-		j.mu.Lock()
-		j.rec.Retries = 0
-		j.mu.Unlock()
+	j := get(id)
+	if j == nil {
+		return false
 	}
+	j.mu.Lock()
+	j.rec.Retries = 0
+	if r := &j.rec; r.State == StateError && r.SaveFailed {
+		if path := r.Last.Path; path != "" && fileExists(path) {
+			r.State, r.SaveFailed, r.Updated = StateDone, false, now()
+			r.Last.Type, r.Last.Message = "done", ""
+			j.changed()
+			j.mu.Unlock()
+			logx.Infof("job %d: retrying the save of %s", id, path)
+			persist()
+			return true
+		}
+		// The file is gone: download it again.
+	}
+	j.mu.Unlock()
 	return requeue(id, StatePaused, StateError, StateWaiting, StateExpired)
 }
 
@@ -386,6 +414,7 @@ func Cancel(id int64) bool {
 		cleanup(j.rec.Req)
 		j.rec.State, j.rec.Updated = StateCanceled, now()
 		j.rec.Last = Event{Type: "canceled"}
+		j.changed()
 		j.deliver(j.rec.Last)
 		j.mu.Unlock()
 		persist()
@@ -418,6 +447,7 @@ func Remove(id int64) {
 		}
 		j.mu.Unlock()
 		delete(jobs, id)
+		forgotten(id)
 		dirty = true
 	}
 	mu.Unlock()
@@ -431,10 +461,39 @@ func Forget(id int64) {}
 func MarkSaved(id int64, s Saved) {
 	if j := get(id); j != nil {
 		j.mu.Lock()
-		j.rec.State, j.rec.Saved, j.rec.Updated = StateSaved, &s, now()
+		j.rec.State, j.rec.Saved, j.rec.Updated, j.rec.SaveFailed = StateSaved, &s, now(), false
+		j.changed()
 		j.mu.Unlock()
 		persist()
 	}
+}
+
+// MarkSaveFailed records that publishing a finished download failed. The
+// job leaves "done", so the foreground service stops retrying it (a save
+// that fails once usually fails every time), and shows as an error; the
+// downloaded file is kept and Resume tries the save again.
+func MarkSaveFailed(id int64, msg string) bool {
+	j := get(id)
+	if j == nil {
+		return false
+	}
+	j.mu.Lock()
+	r := &j.rec
+	ok := r.State == StateDone
+	if ok {
+		if r.Last.Path == "" {
+			r.Last.Path = r.Req.OutPath
+		}
+		r.State, r.SaveFailed, r.Updated = StateError, true, now()
+		r.Last.Type, r.Last.Message = "error", "Could not save to the gallery: "+msg
+		j.changed()
+	}
+	j.mu.Unlock()
+	if ok {
+		logx.Warnf("job %d: save failed: %s", id, msg)
+		persist()
+	}
+	return ok
 }
 
 // Replace gives a job new source URLs (after re-extraction of an expired
@@ -455,6 +514,16 @@ func Replace(id int64, url, audioURL string, headers netx.Headers, chunkSize int
 	return requeue(id, StateExpired, StateError, StatePaused, StateWaiting)
 }
 
+// RequestOf returns a job's request (tests and diagnostics).
+func RequestOf(id int64) Request {
+	if j := get(id); j != nil {
+		j.mu.Lock()
+		defer j.mu.Unlock()
+		return j.rec.Req
+	}
+	return Request{}
+}
+
 // Snapshot returns every job, newest first.
 func Snapshot() []Status {
 	mu.Lock()
@@ -466,15 +535,20 @@ func Snapshot() []Status {
 	out := make([]Status, 0, len(list))
 	for _, j := range list {
 		j.mu.Lock()
-		r := j.rec
-		out = append(out, Status{
-			ID: r.ID, State: r.State, Meta: r.Meta, Event: r.Last, Saved: r.Saved,
-			Kind: r.Req.Kind, Created: r.Created, Updated: r.Updated,
-		})
+		out = append(out, j.status())
 		j.mu.Unlock()
 	}
 	sort.Slice(out, func(a, b int) bool { return out[a].ID > out[b].ID })
 	return out
+}
+
+// status is the job as the app sees it (j.mu held).
+func (j *job) status() Status {
+	r := &j.rec
+	return Status{
+		ID: r.ID, State: r.State, Meta: r.Meta, Event: r.Last, Saved: r.Saved,
+		Kind: r.Req.Kind, Created: r.Created, Updated: r.Updated, SaveFailed: r.SaveFailed,
+	}
 }
 
 // ---- persistence
@@ -509,6 +583,7 @@ func save() {
 			finished++
 			if finished > historyLimit {
 				delete(jobs, r.ID)
+				forgotten(r.ID)
 				continue
 			}
 		}
@@ -540,6 +615,11 @@ func startSaver() {
 			save()
 		}
 	}()
+}
+
+func fileExists(path string) bool {
+	_, err := os.Stat(path)
+	return err == nil
 }
 
 // cleanup removes a job's partial data (output, resume state, temp dir).

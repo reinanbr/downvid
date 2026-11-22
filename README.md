@@ -7,8 +7,9 @@ Open-source Android downloader for videos, music and photos from public links
 plain web pages with MP4/HLS players) — and music links from Spotify, Deezer
 and Apple Music, matched to the same recording on YouTube Music.
 
-Flutter UI, a **Go core** compiled as a native library (downloads, HLS,
-queue, metadata) and a thin Kotlin layer for Android-only APIs.
+A native Kotlin app (Jetpack Compose) with a **built-in browser** that lists
+the videos of the page you are on and a **built-in player**, on top of a
+**Go core** compiled as a native library (downloads, HLS, queue, metadata).
 
 > **Use DownVid only with content that is your own, public, or that you are
 > authorized to download**, respecting each platform's terms of service and
@@ -17,12 +18,14 @@ queue, metadata) and a thin Kotlin layer for Android-only APIs.
 <p align="center">
   <img src="docs/screenshots/home.png" width="200" alt="Home screen">
   <img src="docs/screenshots/share-sheet.png" width="200" alt="Download sheet opened from another app">
-  <img src="docs/screenshots/downloads.png" width="200" alt="Downloads screen">
+  <img src="docs/screenshots/browser.png" width="200" alt="Built-in browser playing a page video in DownVid's player">
   <img src="docs/screenshots/dark-mode.png" width="200" alt="Home screen in dark mode">
 </p>
 
 <p align="center">
-  <a href="https://github.com/reinanbr/downvid/releases/latest"><b>⬇ Download the latest APK</b></a>
+  <a href="https://github.com/reinanbr/downvid/releases/latest/download/DownVid-arm64-v8a.apk"><b>⬇ Download the latest APK (arm64, most phones)</b></a>
+  ·
+  <a href="https://github.com/reinanbr/downvid/releases/latest">all files of the latest release</a>
 </p>
 
 ---
@@ -56,13 +59,13 @@ queue, metadata) and a thin Kotlin layer for Android-only APIs.
 
 Every version is built by CI and published on the
 [Releases page](https://github.com/reinanbr/downvid/releases/latest), with one
-APK per CPU type:
+APK per CPU type. The links below always point to the latest release:
 
 | File | For |
 |---|---|
-| `DownVid-X.Y.Z-arm64-v8a.apk` | almost every phone from the last ~8 years — **pick this one if unsure** |
-| `DownVid-X.Y.Z-armeabi-v7a.apk` | older or low-end 32-bit phones |
-| `DownVid-X.Y.Z-x86_64.apk` | emulators and x86 Chromebooks |
+| [`DownVid-arm64-v8a.apk`](https://github.com/reinanbr/downvid/releases/latest/download/DownVid-arm64-v8a.apk) | almost every phone from the last ~8 years — **pick this one if unsure** |
+| [`DownVid-armeabi-v7a.apk`](https://github.com/reinanbr/downvid/releases/latest/download/DownVid-armeabi-v7a.apk) | older or low-end 32-bit phones |
+| [`DownVid-x86_64.apk`](https://github.com/reinanbr/downvid/releases/latest/download/DownVid-x86_64.apk) | emulators and x86 Chromebooks |
 
 1. Download the APK on the phone and open it.
 2. Android asks to allow installs from your browser/file manager
@@ -123,7 +126,7 @@ estimated size:
 
 Tap **Download**. You can close the sheet right away — the download keeps
 going in the background with a progress notification (pause/cancel). When
-it finishes, **Open** plays the file.
+it finishes, **Open** plays the file in DownVid's player.
 
 > Instagram/Threads posts that are hidden from visitors (private accounts you
 > follow, stories…) show an optional **Sign in** button. It opens the site's
@@ -136,10 +139,11 @@ it finishes, **Open** plays the file.
 |:---:|:---:|
 | <img src="docs/screenshots/downloads.png" width="220" alt="Downloads screen"> | <img src="docs/screenshots/settings.png" width="220" alt="Settings screen"> |
 
-The **download icon** at the top of the home screen opens **Downloads**,
-split into Videos / Music / Photos. Running downloads can be paused and
-resumed (even after the app is closed or the network drops); finished ones
-can be opened, shared or deleted from the ⋮ menu.
+The **Downloads** tab (bottom bar) lists your downloads, split into Videos /
+Music / Photos. Running downloads can be paused and resumed (even after the
+app is closed or the network drops). Tap a finished video or song to play it
+in DownVid's player; the ⋮ menu has **Open with…** (another app), **Share**,
+**Remove from history** and **Delete file**.
 
 Files go to the regular media folders, so they also show up in your gallery
 and music player:
@@ -150,10 +154,33 @@ and music player:
 | Music | `Music/DownVid` |
 | Photos | `Pictures/DownVid` |
 
-The **sliders icon** opens **Settings**: default video quality, default audio
-format, whether music links open in *Audio only*, how many downloads run at
-once, copied-link detection, and the yt-dlp extractor version (it updates
-itself every 3 days; **Update** forces it).
+The **Settings** tab: default video quality, default audio format, whether
+music links open in *Audio only*, how many downloads run at once and how many
+connections each uses, copied-link detection, the browser (search engine, ad
+blocker, desktop sites, automatic player, background playback, clear browsing
+data) and the yt-dlp extractor version (it updates itself every 3 days;
+**Update** forces it).
+
+### 5. Browse and play
+
+| In-page player | Videos on this page | Player |
+|:---:|:---:|:---:|
+| <img src="docs/screenshots/browser.png" width="220" alt="DownVid's player inside a web page"> | <img src="docs/screenshots/browser-videos.png" width="220" alt="Videos found on the page"> | <img src="docs/screenshots/player.png" width="220" alt="Full player"> |
+
+The **Browser** tab (or the globe button next to *Find media*) is a full
+browser: tabs, private tabs, history, bookmarks and Brave's ad blocker. Web
+links you open with DownVid land here too.
+
+- Press play on a page's video and **DownVid's player plays it right there,
+  in the page**, in place of the site's player (no ads, no pop-ups): tap it
+  for play/pause, seeking, **download** and **fullscreen** (speed, lock,
+  fit, rotation; the page stays open behind it). **×** gives the page its
+  own player back. Prefer the site's player? Settings → *Open videos in the
+  player* off turns this into a **Play in DownVid** button.
+- The **download button** in the bottom bar counts the videos found on the
+  page and opens the same download sheet, with a ▶ to preview each quality.
+- Sites protected with DRM (streaming services, some Vimeo videos) play in
+  their own player; DownVid shows a lock and offers nothing to download.
 
 ## Features
 
@@ -175,52 +202,189 @@ itself every 3 days; **Update** forces it).
 - **Downloads screen** (tabs Videos / Music / Photos): persistent queue,
   pause/resume, resume after the app is killed or the network drops,
   automatic renewal of expired links, history with open/share/delete.
-- **Background downloads** with progress notifications (pause/cancel).
+- **Background downloads** with progress notifications (pause/cancel);
+  parallel connections per file (1–16, Settings) speed up large downloads.
+- **Browser**: tabs, private tabs, history and bookmarks, Brave's ad and
+  tracker blocker (its engine and default lists, video ads included),
+  desktop mode, and a **▶ N** button that counts the videos of the
+  page you are on (HLS, MP4, the streams its player loads) and lists them
+  with **Download** and **Play**. "Download link…" takes any media URL with
+  its Referer, User-Agent and Cookie.
+- **Player**: plays page videos and downloads (HLS, DASH, MP4) with
+  double-tap and swipe seeking, swipe brightness/volume, hold for 2×, speed,
+  lock, fit/stretch/zoom, picture-in-picture, background audio and a
+  remembered position. A video you start on a page plays in it at once,
+  in the page, in place of the site's player (Settings can turn that into
+  a "Play in DownVid" button); fullscreen keeps the page open underneath.
+  It starts in portrait; the rotate button switches to landscape.
 - **Settings**: default video quality, default audio format, "music links
-  open in Audio only", simultaneous downloads, copied-link detection, yt-dlp
+  open in Audio only", simultaneous downloads, connections per download,
+  copied-link detection, browser (search engine, ad blocker, desktop sites,
+  automatic player, background playback, clear browsing data), yt-dlp
   version and update.
 
 ## How it works
 
 ### Architecture
 
+DownVid is two layers running in **one Android process**:
+
+- **Kotlin** (Jetpack Compose) draws every screen and owns everything that
+  needs Android: the share entry point, the browser and its WebViews, the
+  player (Media3), the resident yt-dlp process, the foreground services,
+  notifications and MediaStore. It classifies links, picks the extraction
+  route, merges the options and starts downloads.
+- **The Go core** (`libdvcore.so`) does the heavy work that does not need
+  Android: page scanning, turning extractor output into options, HTTP and HLS
+  downloads, muxing, music metadata and the persistent download queue.
+
 ```
-┌──────────────────────────── Flutter (Dart) ────────────────────────────┐
-│ share sheet · home · downloads screen · settings                       │
-│ ExtractController: picks the extraction route, merges options          │
-└───────┬──────────────────────────────┬─────────────────────────────────┘
-        │ dart:ffi (ffigen bindings)   │ MethodChannels
-┌───────▼───────────────────┐  ┌───────▼─────────────────────────────────┐
-│ Go core  libdvcore.so     │  │ Kotlin                                  │
-│ scan     page analysis    │  │ ShareActivity / PasteTileService        │
-│ ytdlp    yt-dlp → options │  │ YtDlp + YtDlpServer (resident yt-dlp)   │
-│ instagram posts + Threads │  │ PageSniffer (hidden WebView)            │
-│ music    tags, matching   │  │ InstagramQuery / InstagramLogin         │
-│ hls      m3u8, AES-128    │  │ DownloadService (foreground service)    │
-│ netx     ranged download  │◄─┤ MediaSaver (MediaStore)                 │
-│ media    remux / ffmpeg   │JNI│ Settings, clipboard                     │
-│ jobs     persistent queue │  └─────────────────────────────────────────┘
-└───────────────────────────┘
+┌──────────────────────────────── Kotlin (Jetpack Compose) ─────────────────────────────────┐
+│ MainActivity   Home · Browser · Downloads · Settings      ShareActivity  download sheet   │
+│ browser/  BrowserModel (tabs, WebViews) · MediaDetector · AdBlocker · InlinePlayer        │
+│ player/   PlayerActivity · PlayerHub (ExoPlayer) · PlaybackService (media session)        │
+│ extract/  Extractor (route, options, download start) · LinkParser · LinkRenewer           │
+│ core/     GoCore (typed calls) · JobController (the job feed) · Settings                  │
+│ YtDlp(Server) resident yt-dlp · PageSniffer / InstagramQuery hidden WebViews              │
+│ DownloadService (foreground) · MediaSaver (MediaStore)                                    │
+└──────────────┬────────────────────────────────────────────────────────────────────────────┘
+               │ JNI: DvCore.nativeCall(method, JSON) → {"ok", "data" | "error"}
+┌──────────────▼─ Go core: libdvcore.so ─┐
+│ scan       generic page scan, probing  │
+│ ytdlp      yt-dlp JSON → options       │
+│ instagram  Instagram + Threads posts   │
+│ music      tags, music-link matching   │
+│ hls        m3u8, AES-128, segments     │
+│ netx       ranged, resumable HTTP      │
+│ media      ffmpeg / pure-Go remux      │
+│ jobs       persistent download queue   │
+└──────────────┬─────────────────────────┘
+               │ os/exec, files                      child process, MediaStore
+               ▼                                     ▼
+       ffmpeg (libffmpeg.so)                   Python + yt-dlp + QuickJS
+       files/jobs/jobs.json                    Movies|Music|Pictures/DownVid
+       no_backup/downloads/                    notifications
 ```
+
+#### Who does what
+
+| Layer | Owns | Talks to |
+|---|---|---|
+| Kotlin | Screens; link classification (`LinkParser`); extraction route, option merging and download start (`Extractor`); renewal of expired links (`LinkRenewer`); the browser (`browser/`), the player (`player/`), yt-dlp (`YtDlp`, `YtDlpServer`), hidden WebViews (`PageSniffer`, `InstagramQuery`), `DownloadService`, `MediaSaver` | The Android SDK, the yt-dlp child process, and Go through JNI (`GoCore`) |
+| Go core | Page scan, option building, downloads (`netx`, `hls`), ffmpeg and remux (`media`), music metadata, **the job queue** (`jobs`, persisted in `files/jobs/jobs.json`) | The network, ffmpeg (`os/exec`) and its own files; it never calls Android APIs |
+
+#### One process, one Go runtime
 
 - The Go core is built with `-buildmode=c-shared` for `arm64-v8a`,
   `armeabi-v7a` and `x86_64` (`scripts/build_go.sh`, run automatically by
-  Gradle). Dart calls it through `dart:ffi`; every string returned by Go is
-  freed with `DV_Free`, results are `{"ok":…,"data"|"error":…}` JSON, and
-  progress events reach Dart through `NativeCallable.listener`. Blocking
-  calls run in short-lived isolates.
-- Kotlin loads **the same** `.so` through JNI (`DvCore`), so the foreground
-  service observes the very same download queue without a Flutter engine.
+  Gradle). Kotlin reaches it through **one** JNI function,
+  `DvCore.nativeCall(method, request)`: UTF-8 JSON in, a
+  `{"ok":…,"data"|"error":…}` envelope out. `GoCore` wraps each method in a
+  typed Kotlin call (`probe`, `ytdlp`, `download`, `pause`, `replace`…).
+- **`JobController` is the only owner of the job feed**: one long-poll
+  (`jobs.Await`, 30 s, at most every 250 ms) runs only while something
+  collects `JobController.jobs` — the Downloads screen, an open download
+  sheet, `DownloadService` — so an idle app does no polling at all. Every
+  mutation (download, pause, resume, renew…) goes through it, and it starts
+  `DownloadService` whenever a job becomes active.
+- Threads: the main thread never blocks. Blocking Go calls run on
+  `Dispatchers.IO`, each download is a set of goroutines, and MediaStore
+  writes happen on a background thread. yt-dlp runs in a separate Python
+  process that stays warm between extractions.
 - [youtubedl-android](https://github.com/JunkFood02/youtubedl-android)
   provides Python, yt-dlp, QuickJS and ffmpeg for Android. DownVid only uses
   yt-dlp to **extract** (`-J`); downloading and muxing happen in Go.
 
+#### Life of a download
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor U as User
+    participant SA as ShareActivity / Browser (Kotlin)
+    participant EX as Extractor (Kotlin)
+    participant Y as yt-dlp server (Kotlin + Python)
+    participant G as Go core (libdvcore.so)
+    participant JC as JobController (Kotlin)
+    participant DS as DownloadService (Kotlin)
+    participant MS as MediaStore
+    U->>SA: Share → "Download with DownVid" (or ▶ N in the browser)
+    SA->>Y: start extracting right away
+    SA->>EX: the download sheet opens
+    EX->>Y: info(url)
+    Y-->>EX: yt-dlp -J output
+    EX->>G: ytdlp(json) over JNI
+    G-->>EX: options (qualities, sizes)
+    U->>EX: picks an option, taps Download
+    EX->>JC: download(request)
+    JC->>G: download → job id
+    JC->>DS: ensureRunning
+    par Go downloads the file
+        G->>G: queued → running → done (no_backup/downloads/)
+    and one feed for everyone who watches
+        loop long-poll jobs.Await
+            JC->>G: await(since)
+            G-->>JC: changed jobs
+        end
+        JC-->>DS: jobs → progress notification (Pause / Cancel)
+        JC-->>EX: jobs → progress in the sheet
+    end
+    DS->>MS: MediaSaver.save → Movies|Music|Pictures/DownVid
+    DS->>JC: markSaved(id, uri) → saved (history)
+    JC-->>EX: "saved" → the sheet shows Open
+```
+
+Go owns the bytes until the file is complete (state `done`, file in the
+app's private `no_backup/downloads/`). **Only `DownloadService` publishes
+it**: it copies the file to MediaStore, deletes the private copy and records
+the gallery URI with `markSaved`, which turns the job into history
+(`saved`). The sheet only watches; closing it never stops the job.
+
+#### Job states
+
+```mermaid
+stateDiagram-v2
+    [*] --> queued: download
+    queued --> running: free slot (Settings, default 2)
+    running --> done: file complete
+    running --> paused: Pause
+    running --> waiting: network error
+    waiting --> queued: retry in 10–60 s
+    running --> expired: HTTP 401/403/404/410
+    expired --> queued: link renewed (replace)
+    running --> error: other failure
+    running --> canceled: Cancel
+    paused --> queued: Resume
+    error --> queued: Retry
+    done --> saved: published by DownloadService
+    done --> error: save failed (file kept)
+    error --> done: Save again
+    saved --> [*]
+    canceled --> [*]
+```
+
+- Every transition is written to `files/jobs/jobs.json` (atomically; progress
+  every 3 s). On start, `running` and `waiting` jobs go back to `queued` and
+  continue from their partial data; a `done` job whose file is gone becomes
+  `error`.
+- `DownloadService` runs while any job is `queued`, `running`, `waiting` or
+  `done`, and stops when the queue is idle (or when Android 15's daily
+  `dataSync` limit is hit). Jobs can become active while it is stopped
+  (Resume/Retry on the Downloads screen, a renewed link), so the UI starts it
+  again whenever a job enters one of those states. Without that, a finished
+  file would sit in `done` ("Saving to gallery…") until the app restarted.
+- A save that fails moves the job to `error` with `saveFailed` set and keeps
+  the downloaded file. The service does not retry it on its own, because a
+  save that fails once usually fails every time. **Save again** on the
+  Downloads screen puts the job back in `done`, and the file is published
+  without downloading it again.
+
 ### From a shared link to the download sheet
 
-`ShareActivity` receives `ACTION_SEND text/plain`, runs the `shareMain` Dart
-entry point in a transparent window, and starts yt-dlp extraction right away
-(before Flutter has booted). The link is classified (`link_parser.dart`) and
-`ExtractController` picks a route:
+`ShareActivity` receives `ACTION_SEND text/plain`, shows the download sheet
+in a transparent window over the calling app, and starts yt-dlp extraction
+right away (while the sheet is still being drawn). The link is classified
+(`LinkParser`) and `Extractor` picks a route:
 
 | Link | Route |
 |---|---|
@@ -238,7 +402,7 @@ The **generic scan** has two halves running in parallel:
    `\/`, `/` and percent-encoding undone), and iframes one level deep
    (with the iframe as `Referer`).
 2. **Dynamic (Kotlin, `PageSniffer`)**: loads the page in a hidden WebView
-   (laid out behind the Flutter view, almost transparent), mutes and plays
+   (laid out behind the activity's content, almost transparent), mutes and plays
    videos, presses common "big play" buttons and records every media request
    (`shouldInterceptRequest`, Resource Timing). This finds players that load
    their streams with JavaScript (hls.js, video.js, JW Player…).
@@ -349,6 +513,103 @@ they cannot be saved as MP4 without re-encoding, and files under 1 MB
   and the query WebView uses the session from the app's cookie store. Sign
   out in Settings.
 
+### Browser
+
+`browser/` is a WebView browser built around finding media:
+
+- **Tabs**: at most 6 WebViews stay alive; older tabs keep only their saved
+  state and reload when selected. Open tabs, history (1000 entries) and
+  bookmarks are JSON files under `files/browser/`, written off the main
+  thread. Pages run only while the browser is on screen.
+- **Private tabs** use a separate WebView profile (`androidx.webkit`
+  `ProfileStore`), a new one per private session: they share nothing with
+  normal tabs or with earlier private sessions, write no history, and their
+  cookies and storage are wiped when the last private tab closes (the empty
+  profile folder is deleted at the next start, the only time Chromium
+  allows it).
+- **Ad and tracker blocker**: Brave's engine,
+  [adblock-rust](https://github.com/brave/adblock-rust), in a small Rust
+  library (`adblock/`, `libdvadblock.so`, JNI) with Brave Shields' default
+  lists (every default list of Brave's catalog plus the Portuguese/Spanish
+  regional one: EasyList, EasyPrivacy, uBlock Origin's lists, Brave's own,
+  ~215 000 rules), compiled ahead of time into `assets/adblock/engine.dat`
+  (loaded in ~140 ms in the background when the browser opens). It works as
+  in Brave:
+  - **network**: every request of a page is checked with its type (taken
+    from its Accept/Range headers or extension: WebView does not say it)
+    and the page as source; blocked ones get an empty response, and
+    `$redirect` rules get uBlock Origin's neutral resources instead (an
+    empty video for a video ad, a no-op script), so players carry on;
+  - **cosmetic**: before a page loads, its site's hiding rules and
+    scriptlets are registered as a document-start script for its origin
+    (CSS through a constructed stylesheet, which page CSP does not block);
+    the classes and ids that appear on the page are sent to the engine,
+    which answers with the generic rules matching them
+    (`hidden_class_id_selectors`), unless the site has `$generichide`.
+  Any site can be allowed from the menu.
+- **Media detection** (`MediaDetector`, one per tab) gathers candidates from
+  three places: every request the page makes (`shouldInterceptRequest`), a
+  script injected at document start in every frame (`INJECTED_JS`: fetch/XHR
+  requests and response types, `<video>`/`<source>` sources, MediaSource use,
+  DRM requests and play events, reported through a `WebMessageListener`),
+  and files the page offers to download. Segments are ignored; manifests and
+  files are batched for 400 ms and resolved by the Go core with the tab's
+  session (Cookie, Referer, User-Agent): one option per HLS variant, sizes,
+  previews flagged; posters and scripts whose folder is named like a video
+  (`.../clip.webm/poster.jpg`) are not candidates. The **▶ N** button opens
+  the download sheet seeded with what was found (yt-dlp runs alongside, with
+  the tab's cookies).
+- **Play events** are caught on the document and on every shadow root as the
+  page creates it (`attachShadow` hook): `play` does not leave a web
+  component, and players such as archive.org's live in one. For a
+  `blob:`/MediaSource player, the URL played is the page's **master**
+  playlist (all qualities), also when the variant the player picked is not
+  among the master's listed options.
+- **DRM**: protected media (Widevine) is allowed for the page's own player
+  (`onPermissionRequest`), so DRM sites play as in Chrome; such a page (EME
+  requested, or a protected-media permission asked) is marked, nothing is
+  offered for download or taken over, and the toolbar shows a lock. DownVid
+  never touches encrypted streams.
+
+### Player
+
+- `PlayerHub` keeps **one** ExoPlayer for the process. `PlayerActivity` shows
+  it (a `PlayerView` surface under Compose controls); `PlaybackService`
+  (a Media3 `MediaSessionService`) wraps it in a media session for the
+  notification, lock screen, headsets and PiP buttons, and keeps audio going
+  with the screen off when "Background playback" is on.
+- Requests carry the page's session (User-Agent, Cookie, and Referer/Origin
+  as a browser sends them: only the page's origin to another site) and go
+  over HTTP/2 or QUIC through the system's Cronet (`HttpEngine`, Android
+  14+): some CDNs refuse HTTP/1.1; separate video/audio formats play through
+  a `MergingMediaSource`; HLS and DASH work even without an extension in the
+  URL.
+- A video the user starts on a page is paused by the injected script in its
+  own `play` event (before a frame or a sound) and plays in DownVid's
+  player **inside the page** (muted previews, short clips and videos that
+  start on their own are left alone); for `blob:`/MediaSource players the
+  manifest the page loaded is played (its master playlist when known),
+  waiting a moment for it; without a playable URL or with DRM the page's
+  video resumes. With the automatic player off, a "Play in DownVid" button
+  appears instead.
+- In-page player (`InlinePlayer`): a `PlayerView` drawn over the page's
+  `<video>`, which stays paused and muted underneath. The script reports
+  the element's box in document CSS px (from frames, relayed by each parent
+  frame) when it moves or resizes (`ResizeObserver`, scroll, a 0.7 s
+  check); the app places the view at box × device-pixel ratio minus the
+  WebView's scroll, applied at layout time, so it follows scrolling without
+  waiting for the page. It has play/pause, seeking, a download button and
+  fullscreen, which shows the full player UI (gestures, speed, lock, fit,
+  rotation) within the browser screen, starting in portrait. Closing it
+  hands the page its player back (paused); navigating, switching tabs or
+  the element leaving the page closes it. It pauses when the browser leaves
+  the screen.
+- The position is remembered per page (not for private tabs) and the player
+  has a download button that opens the same sheet. In `PlayerActivity`
+  (downloads, the sheet's **Play**), leaving the app while a video plays
+  enters picture-in-picture; closing the PiP window or the player releases
+  the decoder and stops the service.
+
 ### Queue, resume and background downloads
 
 - `go/internal/jobs` keeps a **persistent queue** in `files/jobs/jobs.json`
@@ -356,19 +617,29 @@ they cannot be saved as MP4 without re-encoding, and files under 1 MB
   `waiting` (no network), `expired`, `error`, `canceled`; at most N downloads
   run at once (Settings, default 2).
 - **Resume**: ranged downloads store each part's position in
-  `<file>.dvstate`; HLS segments already fetched are reused; pausing or
-  losing the process keeps partial data (only "cancel" deletes it).
+  `<file>.dvstate`; HLS segments already fetched are reused; the finished
+  input of a two-input job (video + audio) is not fetched again when the
+  other one resumes; pausing or losing the process keeps partial data (only
+  "cancel" deletes it).
+- **Faster downloads**: large files are split into ranges fetched over up to
+  16 connections (Settings, default 8); a slow range is taken over by a free
+  connection, and servers that refuse ranges fall back to one stream.
 - **No network**: the job waits and retries by itself (10–60 s, up to 60
   times), continuing where it stopped.
 - **Expired links** (HTTP 401/403/404/410 from signed CDN URLs): the
   Downloads screen extracts the original link again, finds the same choice
   (`optionKey`: kind, quality, codec, format, carousel item) and swaps the
-  URLs (`DV_Replace`) keeping the partial files.
-- When the app starts, `DvCore.ensureInit` loads the queue and resumes what
-  was pending. `DownloadService` (foreground service, type `dataSync`) polls
-  the queue through JNI, shows per-download notifications with Pause/Cancel,
-  publishes finished files and records them in the history. Closing or
-  hiding the sheet never cancels a download.
+  URLs (`replace`) keeping the partial files.
+- When the app starts, `GoCore.ensureInit` loads the queue and resumes what
+  was pending. `DownloadService` (foreground service, type `dataSync`)
+  follows `JobController.jobs`, shows per-download notifications with
+  Pause/Cancel (at most one update per second), publishes finished files and
+  records them in the history, and stops when nothing is active. Closing or
+  hiding the sheet never cancels a download. See [Job states](#job-states)
+  for when the service runs and how failed saves are retried.
+- Gallery file names come from the title, cut to 80 characters and 180
+  UTF-8 bytes without splitting an emoji. MediaStore rejects names that end
+  in half of a surrogate pair.
 
 ### Storage and permissions
 
@@ -376,8 +647,9 @@ they cannot be saved as MP4 without re-encoding, and files under 1 MB
   Android 10+): videos → `Movies/DownVid`, audio → `Music/DownVid`, photos →
   `Pictures/DownVid`. Android 7–9 write the file directly
   (`WRITE_EXTERNAL_STORAGE`, `maxSdkVersion=28`).
-- Permissions: `INTERNET`, `FOREGROUND_SERVICE(_DATA_SYNC)`,
-  `POST_NOTIFICATIONS` (asked on the first download), `WAKE_LOCK`.
+- Permissions: `INTERNET`, `FOREGROUND_SERVICE(_DATA_SYNC, _MEDIA_PLAYBACK)`,
+  `POST_NOTIFICATIONS` (asked on the first download), `WAKE_LOCK`. Web pages
+  get no camera, microphone or location access.
 - The clipboard is read only while the app has focus (Android 10+ forbids
   background reads); the app first checks the clip's timestamp, which does
   not trigger Android's "pasted from clipboard" toast, and reads the content
@@ -395,23 +667,30 @@ Requirements:
 
 | Tool | Version |
 |---|---|
-| Flutter | 3.44+ (Dart 3.12+) |
-| Go | 1.25+ |
-| Android SDK + NDK | NDK 28.2.13676358 (the one Flutter's Gradle plugin uses) |
-| Java | 17 |
-| libclang | only to regenerate the FFI bindings |
+| JDK | 17+ with `javac` (21 recommended; Android Studio's bundled JBR works) |
+| Go | 1.26+ |
+| Rust | stable, with the Android targets (`rustup target add aarch64-linux-android armv7-linux-androideabi x86_64-linux-android`) |
+| Android SDK + NDK | compileSdk 37, NDK 28.2.13676358 |
 
 ```bash
-flutter pub get
+cd android
 
-# Debug APK (Gradle runs scripts/build_go.sh incrementally)
-flutter build apk --debug
-# Smaller debug APK for one device ABI (Flutter ignores --target-platform in debug)
-DV_ABI=arm64-v8a flutter build apk --debug --target-platform android-arm64
+# Debug APK (Gradle runs scripts/build_go.sh and scripts/build_rust.sh incrementally)
+./gradlew :app:assembleDebug
+# Smaller and faster: only the device's ABI (Go core, yt-dlp, ffmpeg)
+DV_ABI=arm64-v8a ./gradlew :app:installDebug
 
 # Release APKs, one per ABI
-flutter build apk --release --split-per-abi
+DV_SPLIT=1 ./gradlew :app:assembleRelease
+# Release code signed with the debug key: installs over a debug build
+# (keeping the data) to measure start-up and memory
+DV_ABI=arm64-v8a ./gradlew :app:installBenchmark
 ```
+
+The version comes from `android/gradle.properties` (`dv.versionName`,
+`dv.buildNumber`), or `DV_VERSION` / `DV_BUILD_NUMBER`. Per-ABI version codes
+are `abi × 1000 + build` (armeabi-v7a 1, arm64-v8a 2, x86_64 4), the same
+scheme as earlier releases, so installed copies update in place.
 
 The Go core can be built on its own:
 
@@ -422,8 +701,15 @@ DV_VERSION=1.2.3 scripts/build_go.sh # version embedded in the library
 ```
 
 The libraries are 16 KB page-aligned (required on Android 15+ devices).
-After changing exported Go functions, update `go/include/dvcore.h` and run
-`dart run ffigen --config ffigen.yaml`.
+New Go methods are added to the `nativeCall` dispatcher in
+`go/dvcore/main.go` and wrapped in `GoCore.kt`.
+
+The ad blocker (`adblock/`, Rust) is built by Gradle with
+`scripts/build_rust.sh` (needs `rustup target add aarch64-linux-android
+armv7-linux-androideabi x86_64-linux-android`). Its lists are rebuilt from
+Brave's catalog with `scripts/build_adblock_lists.py` (cargo, node ≥ 22,
+git; writes `assets/adblock/engine.dat` and `resources.json`; uBlock Origin's
+scriptlets are converted with Node's permission model, read-only).
 
 **Release signing**: put `android/key.properties` (git-ignored) with
 `storeFile`, `storePassword`, `keyAlias`, `keyPassword`, or set
@@ -433,8 +719,9 @@ After changing exported Go functions, update `go/include/dvcore.h` and run
 ## Testing
 
 ```bash
-flutter analyze && flutter test        # Dart
-cd go && go vet ./... && go test -race ./internal/...
+cd android && ./gradlew :app:testDebugUnitTest   # Kotlin (link parser, request types, URL rules)
+cd go && go vet ./... && go test -race ./...
+cd adblock && cargo test --release                 # ad blocker, including the bundled engine
 
 # Tests that reach the network (iTunes/Deezer/Spotify lookups)
 cd go && DV_NET=1 go test ./internal/music -run Net -v
@@ -453,23 +740,28 @@ DV_YTDLP=$(which yt-dlp) go run ./cmd/dvcli ytdlp <url> 2 out.mp4
 DV_YTDLP=$(which yt-dlp) go run ./cmd/dvcli audio <url> 0 out.m4a
 ```
 
-Simulate a share on a device or emulator:
+Simulate a share, or open a page in the browser, on a device or emulator:
 
 ```bash
 adb shell am start -a android.intent.action.SEND -t text/plain \
   --es android.intent.extra.TEXT "'https://www.youtube.com/watch?v=aqz-KE-bpKQ'" \
   -n com.downvid.downvid/.ShareActivity
+adb shell am start -a android.intent.action.VIEW \
+  -d https://test-streams.mux.dev/x36xhzz/x36xhzz.m3u8 -n com.downvid.downvid/.MainActivity
 ```
 
 ## Releases and CI
 
 `.github/workflows/ci.yml`:
 
-- **Every push and pull request**: `go vet`, `go test -race`,
-  `flutter analyze`, `flutter test`, and a debug build to catch Android/Go
-  build breakages.
-- **Tags `v*`** (e.g. `v0.1.0`): builds the release APKs per ABI
-  (`arm64-v8a`, `armeabi-v7a`, `x86_64`) with SHA-256 checksums, and publishes
+- **Every push and pull request**: `go vet`, `go test -race`, the Rust
+  tests (`cargo test`), the Kotlin unit tests, and a debug build (arm64) to
+  catch Android/Go/Rust build breakages.
+- **Tags `v*`** (e.g. `v0.2.0`): builds the signed release APKs per ABI
+  (`DownVid-arm64-v8a.apk`, `DownVid-armeabi-v7a.apk`, `DownVid-x86_64.apk`:
+  the same names in every release, so
+  `releases/latest/download/DownVid-<abi>.apk` always serves the newest
+  one; the version is in each file's label) with SHA-256 checksums, and publishes
   a GitHub Release whose notes are the matching section of
   [`CHANGELOG.md`](CHANGELOG.md) (GitHub's generated notes when there is
   none). Tags with a suffix (`v1.0.0-beta.1`) become pre-releases. If the
@@ -487,18 +779,17 @@ update between builds signed with different keys):
 | `ANDROID_KEY_ALIAS` | key alias |
 | `ANDROID_KEY_PASSWORD` | key password |
 
-Release steps: update `version:` in `pubspec.yaml` and `CHANGELOG.md`,
-commit, then either `git tag vX.Y.Z && git push origin vX.Y.Z`, or create a
-release on GitHub (*Releases → Draft a new release*) with a new `vX.Y.Z` tag.
-The APKs appear on the release a few minutes later (Actions tab shows the
-progress).
+Release steps: update `dv.versionName` in `android/gradle.properties` and
+`CHANGELOG.md`, commit, then either `git tag vX.Y.Z && git push origin vX.Y.Z`,
+or create a release on GitHub (*Releases → Draft a new release*) with a new
+`vX.Y.Z` tag. The APKs appear on the release a few minutes later (Actions tab
+shows the progress).
 
 ## Project layout
 
 ```
 go/                         Go core (module github.com/downvid/core)
-  dvcore/                   C exports for Dart (FFI) and JNI exports for Kotlin
-  include/dvcore.h          C API (input for ffigen)
+  dvcore/                   JNI entry point (nativeCall) and method dispatcher
   internal/scan             generic page scan and candidate resolution
   internal/ytdlp            yt-dlp JSON → options, error messages, audio options
   internal/instagram        Instagram query parameters and response parser; Threads post parser
@@ -509,34 +800,44 @@ go/                         Go core (module github.com/downvid/core)
   internal/jobs             persistent queue, scheduler, job runner
   cmd/dvcli                 desktop test tool
   third_party/gomedia       vendored gomedia (MIT) with patches (PATCHES.md)
-lib/                        Flutter app
-  main.dart                 entry points: main() (app) and shareMain() (sheet)
-  share/                    share sheet
-  download/                 ExtractController, downloads screen, link renewal
-  settings/                 settings screen and usage notice
-  core/                     FFI facade, platform channels, settings, link parser
 android/app/src/main/
-  kotlin/…                  ShareActivity, services, WebView helpers, MediaSaver
+  kotlin/com/downvid/downvid/
+    MainActivity, ShareActivity, DownloadService, YtDlp(Server), PageSniffer,
+    InstagramQuery, MediaSaver, PasteTileService…
+    core/                   GoCore (JNI facade), JobController, models, settings
+    extract/                Extractor, LinkParser, LinkRenewer
+    browser/                tabs, WebView clients, media detector, ad blocker, history
+    player/                 player activity, shared ExoPlayer, media session service
+    ui/                     Compose screens, theme, download sheet
   assets/ytdlp_server.py    resident yt-dlp process
+  assets/adblock/           ad blocker engine and resources (scripts/build_adblock_lists.py)
+android/app/src/test/       Kotlin unit tests
 scripts/build_go.sh         builds libdvcore.so for every ABI
+scripts/build_rust.sh       builds libdvadblock.so for every ABI
+scripts/build_adblock_lists.py  builds the ad blocker's engine from Brave's lists
+adblock/                    ad blocker: Brave's adblock-rust behind JNI (Rust)
 assets/brand/               logo (SVG master, 512 px PNG); Android icons are generated from it
 ```
 
 ## Debugging
 
 ```bash
-adb logcat -s flutter DownVid DownVid-Go
+adb logcat -s DownVid DownVid-Go
 ```
 
 `DownVid-Go` is the Go core (extraction, downloads, ffmpeg commands),
-`DownVid` the Kotlin side (yt-dlp server, WebViews, service, MediaStore),
-`flutter` the Dart side (lines prefixed with `[DV]`).
+`DownVid` the Kotlin side (yt-dlp server, browser detection, player, WebViews,
+services, MediaStore).
 
 ## Limitations
 
 - Live streams, DRM-protected content and DASH `.mpd` manifests from generic
-  pages are not supported; WebM/OGG files from generic pages are skipped
-  (they cannot be saved as MP4 without re-encoding).
+  pages cannot be downloaded (DASH and live streams can still be played in
+  the player; DRM-protected video is neither downloaded nor played); WebM/OGG
+  files from generic pages are skipped (they cannot be saved as MP4 without
+  re-encoding).
+- Private tabs need an Android System WebView recent enough to support
+  multiple profiles; on older ones the "New private tab" entry is hidden.
 - Instagram content that Instagram only shows to signed-in users needs the
   optional login; stories always do. The same goes for Threads posts hidden
   from visitors. Text-only Threads posts have nothing to download.
@@ -557,7 +858,10 @@ DownVid is licensed under the **GNU General Public License v3.0** (see
 | [FFmpeg](https://ffmpeg.org) | LGPL/GPL (as built by youtubedl-android) |
 | [gomedia](https://github.com/yapingcat/gomedia) (vendored, patched) | MIT |
 | [golang.org/x/text](https://pkg.go.dev/golang.org/x/text) | BSD-3-Clause |
-| Flutter, `package:ffi`, `package:ffigen` | BSD-3-Clause |
+| AndroidX, Jetpack Compose, Media3 (ExoPlayer), kotlinx.coroutines / serialization | Apache-2.0 |
+| [adblock-rust](https://github.com/brave/adblock-rust) (Brave's ad block engine), [jni-rs](https://github.com/jni-rs/jni-rs), serde_json | MPL-2.0, MIT/Apache-2.0 |
+| Filter lists in `assets/adblock/engine.dat`: [EasyList, EasyPrivacy](https://easylist.to), [uBlock Origin's lists](https://github.com/uBlockOrigin/uAssets), [Brave's lists](https://github.com/brave/adblock-lists), [Fanboy's](https://secure.fanboy.co.nz), [AdGuard Spanish/Portuguese](https://github.com/AdguardTeam/AdguardFilters), [URLhaus filter](https://gitlab.com/malware-filter/urlhaus-filter) | GPL-3.0 / CC BY-SA 3.0, GPL-3.0, MPL-2.0, CC BY 3.0, GPL-3.0, MIT |
+| Resources in `assets/adblock/resources.json`: [uBlock Origin](https://github.com/gorhill/uBlock)'s scriptlets and redirects, [Brave's](https://github.com/brave/adblock-resources) | GPL-3.0, MPL-2.0 |
 
 The DownVid logo (`assets/brand/`) is part of this project and covered by the
 same license.
